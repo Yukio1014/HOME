@@ -1120,15 +1120,17 @@ function loadDB(){
       localStorage.setItem('life_balance_db_version', DB_VERSION);
       return false;
     }
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if(!saved) return false;
+    const loaded = JSON.parse(saved);
+
     // 迁移旧字段: settings -> savingsPlan + treasure
     if(loaded.settings && !loaded.savingsPlan){
       loaded.savingsPlan = {target: loaded.settings.yearlyTarget||100000, startDate:'2026-07-01', endDate:'2028-07-01'};
       loaded.treasure = {seedFund:0, baseFund: loaded.savedTotal||0, monthlyLoot:0, lootMonth:''};
       loaded.rewardPool = loaded.settings.rewardPool||0;
     }
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if(!saved) return false;
-    const loaded = JSON.parse(saved);
+
     // 深合并:保留新字段,用已存数据覆盖
     Object.keys(loaded).forEach(key=>{
       if(key === 'finance'){
@@ -5096,6 +5098,7 @@ function saveSettings(){
   closeSheet();
   emitSaved();
   saveDB();
+  if(state.currentModule==='home') renderHome(document.getElementById('content'));
   toast('设置已保存');
 }
 
