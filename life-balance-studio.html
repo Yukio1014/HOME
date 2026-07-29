@@ -2655,13 +2655,16 @@ function delPlanCat(name){
 
 // ===== 学习板块 =====
 function renderStudy(c){
-  // 每次进入学习页默认关注今天（避免上次选中的旧日期污染）
-  const today = todayStr();
-  const todayParts = today.split('-').map(Number);
-  state.currentStudyDate = today;
-  state.studyCalYear = todayParts[0];
-  state.studyCalMonth = todayParts[1];
-  state.studyCalDay = todayParts[2];
+  // 仅在首次进入（未选定日期）时默认今天；用户点击其他日期后保留选择
+  if(!state.currentStudyDate){
+    state.currentStudyDate = todayStr();
+    const p = state.currentStudyDate.split('-').map(Number);
+    state.studyCalYear = p[0]; state.studyCalMonth = p[1]; state.studyCalDay = p[2];
+  } else {
+    // 保证 studyCalYear/Month/Day 与 currentStudyDate 同步（防止外部修改不一致）
+    const p = state.currentStudyDate.split('-').map(Number);
+    state.studyCalYear = p[0]; state.studyCalMonth = p[1]; state.studyCalDay = p[2];
+  }
 
   const tasks = DB.study.tasks[state.currentStudyDate]||[];
   const week = getWeekDates();
