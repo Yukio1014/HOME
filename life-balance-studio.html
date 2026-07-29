@@ -1189,7 +1189,7 @@ function loadDB(){
 
 const state = {
   currentModule: 'home',
-  currentMonth: new Date().toISOString().slice(0,7),
+  currentMonth: (()=>{ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); })(),
   currentStudyDate: todayStr(),
   studyCalYear: parseInt(todayStr().slice(0,4)),
   studyCalMonth: parseInt(todayStr().slice(5,7)),
@@ -1207,6 +1207,14 @@ const state = {
 
 function todayStr(){
   const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+
+// 本地日期字符串(避免 toISOString UTC 偏移问题)
+function localDateStr(d){
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
   const day = String(d.getDate()).padStart(2,'0');
@@ -2711,7 +2719,7 @@ function renderStudy(c){
       </div>
       <div class="week-cal">
         ${week.map(d=>{
-          const ds = d.toISOString().slice(0,10);
+          const ds = localDateStr(d);
           const dayTasks = DB.study.tasks[ds]||[];
           const allDone = dayTasks.length>0 && dayTasks.every(t=>t.done);
           const hasPartial = dayTasks.length>0 && !allDone && dayTasks.some(t=>t.done);
@@ -2741,7 +2749,7 @@ function renderStudy(c){
         ${['日','一','二','三','四','五','六'].map(w=>'<div class="month-cal-head">'+w+'</div>').join('')}
         ${getMonthCalendarDays().map(d=>{
           if(!d) return '<div class="month-cal-day empty"></div>';
-          const ds = d.toISOString().slice(0,10);
+          const ds = localDateStr(d);
           const dayTasks = DB.study.tasks[ds]||[];
           const allDone = dayTasks.length>0 && dayTasks.every(t=>t.done);
           const hasPartial = dayTasks.length>0 && !allDone && dayTasks.some(t=>t.done);
@@ -3843,7 +3851,10 @@ function saveInspire(val){
 // ===== 家庭板块 =====
 function renderFamily(c){
   c.innerHTML=`
-    <div class="section-title">王朝建立</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>王朝建立</span>
+      <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:18px;background:var(--blue);color:#fff;" onclick="openAddFamily()" aria-label="添加">＋</button>
+    </div>
     <div class="avatar-wall">
       ${(DB.family||[]).map(m=>{
         const d = daysToBday(m.birthday);
@@ -3873,7 +3884,6 @@ function renderFamily(c){
         `;
       }).join('')}
     </div>
-    <button class="report-btn" style="color:var(--blue);margin-top:8px;" onclick="openAddFamily()">＋ 添加家庭成员</button>
     <div style="height:20px;"></div>
   `;
 }
@@ -4014,7 +4024,10 @@ function saveFamily(id){
 // ===== 健康板块 =====
 function renderHealth(c){
   c.innerHTML=`
-    <div class="section-title">个人健康档案</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>个人健康档案</span>
+      <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:18px;background:var(--green);color:#fff;" onclick="openUpload()" aria-label="上传">＋</button>
+    </div>
     <div class="search-bar">
       <div class="search-input-wrap">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8E8E93" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="#8E8E93" stroke-width="2" stroke-linecap="round"/></svg>
@@ -4024,7 +4037,6 @@ function renderHealth(c){
     <div id="healthList">
       ${renderHealthList('')}
     </div>
-    <button class="report-btn" style="color:var(--green);margin-top:8px;" onclick="openUpload()">＋ 上传新档案</button>
     <div style="height:20px;"></div>
   `;
 }
@@ -4169,7 +4181,10 @@ function confirmUpload(){
 
 function renderSocial(c){
   c.innerHTML=`
-    <div class="section-title">人脉 CRM</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>人脉 CRM</span>
+      <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:18px;background:var(--blue);color:#fff;" onclick="openAddSocial()" aria-label="添加">＋</button>
+    </div>
     <div class="search-bar" style="display:flex;gap:8px;align-items:center;">
       <div class="search-input-wrap" style="flex:1;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8E8E93" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="#8E8E93" stroke-width="2" stroke-linecap="round"/></svg>
@@ -4179,7 +4194,6 @@ function renderSocial(c){
     <div id="socialList" style="margin-top:8px;">
       ${renderSocialList('')}
     </div>
-    <button class="report-btn" style="color:var(--blue);margin-top:4px;" onclick="openAddSocial()">＋ 添加人脉</button>
     <div style="height:20px;"></div>
   `;
 }
@@ -4587,7 +4601,10 @@ function renderDecision(c){
   const cntArch = countByStatus('已了') + countByStatus('死刑');
 
   c.innerHTML = `
-    <div class="section-title">事缓则圆</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>事缓则圆</span>
+      <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:18px;background:var(--blue);color:#fff;" onclick="openAddDecision()" aria-label="添加">＋</button>
+    </div>
     <div class="dec-tabs">
       <div class="dec-tab ${tab==='待办'?'active':''}" onclick="setDecTab('待办')">
         ⏳ 待办池<span class="tab-badge">${cntTodo}</span>
@@ -4602,7 +4619,6 @@ function renderDecision(c){
     ${renderSmallDecisionWheel()}
     ${renderSmallDecisionSummary()}
     <div id="decList">${renderDecList()}</div>
-    <button class="report-btn" style="color:var(--blue);margin-top:8px;" onclick="openAddDecision()">＋ 新增决策记录</button>
     <div style="height:20px;"></div>
   `;
 }
