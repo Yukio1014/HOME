@@ -2472,7 +2472,97 @@ function delAdvanceItem(id){
   toast('已删除');
 }
 
+// ===== 主线任务报酬编辑 =====
+function editIncome(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m){ toast('请先切换到有效月份'); return; }
+  openSheet(`
+    <div class="sheet-title">编辑 · ${state.currentMonth}</div>
+    <div class="sheet-field">
+      <div class="sheet-label">主线任务报酬(预估)</div>
+      <input class="sheet-input" id="editIncomePlanned" type="number" value="${m.incomePlanned}" placeholder="0">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">主线任务报酬(实际)</div>
+      <input class="sheet-input" id="editIncomeActual" type="number" value="${m.incomeActual}" placeholder="0">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveIncome()">保存</button>
+    </div>
+  `);
+}
 
+function saveIncome(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  m.incomePlanned = parseFloat(document.getElementById('editIncomePlanned').value)||0;
+  m.incomeActual = parseFloat(document.getElementById('editIncomeActual').value)||0;
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  emitSaved();
+  toast('报酬已更新');
+}
+
+// ===== 月份切换 =====
+function changeMonth(delta){
+  haptic();
+  const [y,m] = state.currentMonth.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  if(key < '2026-07') { toast('2026年7月是起始月'); return; }
+  if(!DB.finance[key]){
+    DB.finance[key] = { incomePlanned:0, incomeActual:0, goldOverride:null, plannedBudget:0, plannedItems:[], advanceItems:[], tags:['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'] };
+  }
+  state.currentMonth = key;
+  saveDB();
+  renderMoney(document.getElementById('content'));
+}
+
+// ===== 月结金币覆盖 =====
+function editGoldOverride(){
+  haptic();
+  const fin = calcMonthFinance(state.currentMonth);
+  openSheet(`
+    <div class="sheet-title">月结金币 · 手动覆盖</div>
+    <div style="background:#FFF9E6;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#795548;">
+      系统自动计算: ¥${fmtMoney(fin.goldActual)}<br>
+      你可以手动覆盖实际值（用于特殊情况）
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">覆盖值（留空恢复自动）</div>
+      <input class="sheet-input" id="goldOverrideInput" type="number" value="${fin.goldOverride||''}" placeholder="自动计算">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveGoldOverride()">保存</button>
+    </div>
+  `);
+}
+
+function saveGoldOverride(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  const val = document.getElementById('goldOverrideInput').value.trim();
+  m.goldOverride = val === '' ? null : (parseFloat(val)||0);
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  toast(m.goldOverride !== null ? '已手动覆盖月结金币' : '已恢复自动计算');
+}
+
+function resetGoldOverride(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  m.goldOverride = null;
+  saveDB();
+  renderMoney(document.getElementById('content'));
+  toast('已恢复自动计算');
+}
 
 // ===== 学习板块 =====
 function renderStudy(c){
