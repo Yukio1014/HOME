@@ -2647,6 +2647,14 @@ function delPlanCat(name){
 
 // ===== 学习板块 =====
 function renderStudy(c){
+  // 每次进入学习页默认关注今天（避免上次选中的旧日期污染）
+  const today = todayStr();
+  const todayParts = today.split('-').map(Number);
+  state.currentStudyDate = today;
+  state.studyCalYear = todayParts[0];
+  state.studyCalMonth = todayParts[1];
+  state.studyCalDay = todayParts[2];
+
   const tasks = DB.study.tasks[state.currentStudyDate]||[];
   const week = getWeekDates();
 
@@ -2747,41 +2755,34 @@ function renderStudy(c){
         }).join('')}
       </div>
       `}
-    <!-- 大目标 -->
-    <div class="card-title" style="padding:0 4px 4px;">🎯 大目标</div>
-    <div id="bigGoals">
-      ${(DB.study.bigGoals||[]).map(g=>`
-        <div class="card" style="padding:14px;margin-bottom:8px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div style="flex:1;">
-              <div style="font-size:15px;font-weight:600;">${g.done?'✅ '+g.title:g.title}</div>
-              <div style="font-size:12px;color:var(--label-3);margin-top:2px;">截止 ${g.deadline} · ${g.progress}%</div>
-            </div>
-            <button class="edit-btn" onclick="editBigGoal('${g.id}')">编辑</button>
-          </div>
-          <div class="study-progress" style="margin-top:8px;"><span style="width:${g.progress}%;background:${g.done?'var(--green)':'var(--purple)'};"></span></div>
-          <div style="font-size:12px;color:var(--orange);margin-top:6px;">🏆 ${g.reward}</div>
-        </div>
-      `).join('')}
-    </div>
-    <button class="report-btn" style="color:var(--purple);margin-bottom:12px;" onclick="addBigGoal()">＋ 设置大目标</button>
-
+    <!-- 今日待办（含大目标融合） -->
     <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px 8px;">
-      <div class="card-title" style="margin:0;">今日任务 (${tasks.length})</div>
+      <div class="card-title" style="margin:0;">今日待办 (${tasks.length + (DB.study.bigGoals||[]).length})</div>
     </div>
     <div id="taskList">
-      ${tasks.length?tasks.map(t=>taskHtml(t)).join(''):'<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-text">暂无任务,点击下方添加</div></div>'}
+      ${(DB.study.bigGoals||[]).map(g=>bigGoalHtml(g, state.currentStudyDate)).join('')}
+      ${tasks.length?tasks.map(t=>taskHtml(t)).join(''):((DB.study.bigGoals||[]).length?'':'<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-text">暂无任务,点击下方添加</div></div>')}
     </div>
     <button class="report-btn" style="color:var(--green);" onclick="openAddTask()">＋ 添加学习任务</button>
+    <button class="report-btn" style="color:var(--purple);margin-top:6px;" onclick="addBigGoal()">＋ 设置大目标</button>
 
     <!-- 书架 -->
-    <div class="section-title" style="font-size:18px;margin-top:12px;">📚 书架</div>
+    <div class="card" style="padding:12px;margin-top:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div class="section-title" style="margin:0;font-size:18px;">📚 书架</div>
+        <div style="display:flex;gap:6px;">
+          <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:16px;background:var(--bg);" onclick="focusBookSearch()" aria-label="搜索">🔎</button>
+          <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:16px;background:var(--purple);color:#fff;" onclick="openAddBook()" aria-label="添加">⏫</button>
+        </div>
+      </div>
+      <input class="sheet-input" id="bookSearchInput" placeholder="搜索书名或作者…" style="height:36px;padding:0 10px;font-size:14px;margin-bottom:8px;" oninput="filterBooks(this.value)">
+    </div>
     <div id="bookshelf">
       ${(DB.study.bookshelf||[]).map(b=>{
         const pct = b.totalPages>0 ? Math.min(100, Math.round(b.currentPage/b.totalPages*100)) : 0;
         const inspCount = (b.inspirations||[]).length;
         return `
-          <div class="card book-card" style="margin-bottom:8px;">
+          <div class="card book-card" style="margin-bottom:8px;" data-search="${(b.title+' '+(b.author||'')).toLowerCase()}">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div class="book-spine" style="background:${b.color||'#5AC8FA'};">📖</div>
               <div style="flex:1;">
@@ -2815,11 +2816,37 @@ function renderStudy(c){
             </div>
           </div>
         `;
-      }).join('') || '<div class="empty-state"><div class="empty-state-icon">📚</div><div class="empty-state-text">书架空空如也，添加第一本书吧</div></div>'}
+      }).join('') || '<div class="empty-state"><div class="empty-state-icon">📚</div><div class="empty-state-text">书架空空如也，点击右上方 ⏫ 添加第一本书</div></div>'}
     </div>
-    <button class="report-btn" style="color:var(--purple);" onclick="openAddBook()">＋ 添加新书</button>
     <div style="height:20px;"></div>
   `;
+}
+
+function focusBookSearch(){
+  const inp = document.getElementById('bookSearchInput');
+  if(inp) inp.focus();
+}
+
+function filterBooks(kw){
+  kw = (kw||'').trim().toLowerCase();
+  const cards = document.querySelectorAll('#bookshelf .book-card');
+  let visible = 0;
+  cards.forEach(c=>{
+    const s = c.getAttribute('data-search')||'';
+    if(!kw || s.includes(kw)){ c.style.display=''; visible++; }
+    else { c.style.display='none'; }
+  });
+  // 空结果提示
+  const shelf = document.getElementById('bookshelf');
+  let empty = shelf.querySelector('.book-empty');
+  if(visible===0 && kw){
+    if(!empty){
+      empty = document.createElement('div');
+      empty.className = 'empty-state book-empty';
+      empty.innerHTML = '<div class="empty-state-icon">🔍</div><div class="empty-state-text">没找到符合条件的书</div>';
+      shelf.appendChild(empty);
+    }
+  } else if(empty){ empty.remove(); }
 }
 
 function taskHtml(t){
@@ -2850,6 +2877,48 @@ function deleteTask(id){
   saveDB();
   renderStudy(document.getElementById('content'));
   toast('任务已删除');
+}
+
+// ===== 大目标渲染（融合到今日待办） =====
+function bigGoalHtml(g, date){
+  const checkedToday = (g.checkDates||[]).includes(date);
+  const pct = g.progress || 0;
+  return `
+    <div class="task-card" data-id="bg_${g.id}" style="border-left:3px solid var(--purple);">
+      <div style="display:flex;align-items:center;">
+        <div class="task-circle ${checkedToday?'done':''}" style="background:${checkedToday?'var(--purple)':'transparent'};border-color:${checkedToday?'var(--purple)':'var(--purple)'};color:var(--purple);" onclick="checkBigGoalToday('${g.id}')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:15px;font-weight:600;color:${checkedToday?'var(--label-3)':'var(--label-1)'};text-decoration:${checkedToday?'line-through':'none'};">🎯 ${g.title}</div>
+          <div style="font-size:12px;color:var(--purple);margin-top:2px;">大目标 · ${pct}% · 截止 ${g.deadline||'未设置'}</div>
+        </div>
+        <button class="cmp-pair-edit" style="flex-shrink:0;width:28px;height:28px;font-size:14px;" onclick="editBigGoal('${g.id}')">✏</button>
+        <button class="cmp-pair-edit" style="flex-shrink:0;width:28px;height:28px;font-size:14px;background:#FFEBEE;color:var(--red);margin-left:4px;" onclick="deleteBigGoal('${g.id}')">🗑</button>
+      </div>
+    </div>
+  `;
+}
+
+function checkBigGoalToday(id){
+  const g = (DB.study.bigGoals||[]).find(x=>x.id===id);
+  if(!g) return;
+  if(!g.checkDates) g.checkDates = [];
+  const date = state.currentStudyDate;
+  const idx = g.checkDates.indexOf(date);
+  if(idx >= 0){
+    // 取消打卡
+    g.checkDates.splice(idx, 1);
+    g.progress = Math.max(0, (g.progress||0) - 10);
+    toast('已取消今日打卡');
+  } else {
+    g.checkDates.push(date);
+    g.progress = Math.min(100, (g.progress||0) + 10);
+    strongHaptic();
+    toast('已打卡 🎯 +10%');
+  }
+  saveDB();
+  renderStudy(document.getElementById('content'));
 }
 
 // ===== 本月汇总（动态计算）=====
@@ -3448,7 +3517,8 @@ function strongHaptic(){ if(navigator.vibrate) navigator.vibrate([0,30,20,30]); 
 
 function openAddTask(){
   haptic();
-  state.multiTaskDates = new Set([state.currentStudyDate]);
+  // 默认选中"今天"，避免上次选过的旧日期污染
+  state.multiTaskDates = new Set([todayStr()]);
   renderAddTaskSheet();
 }
 
