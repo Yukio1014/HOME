@@ -996,8 +996,10 @@ function importData(input){
   reader.onload = function(e){
     try {
       const imported = JSON.parse(e.target.result);
-      if(!imported.settings || !imported.study){
-        toast('文件格式不正确');
+      // 容错：v3 数据库不再有 settings 字段，只要有 study 或 finance 等核心字段即可
+      const hasCore = !!(imported.study || imported.finance || imported.family || imported.social || imported.decisions || imported.savingsPlan || imported.treasure);
+      if(!hasCore){
+        toast('文件格式不正确（缺少核心字段）');
         return;
       }
       if(!confirm('导入将覆盖当前所有数据，确定继续？')) return;
