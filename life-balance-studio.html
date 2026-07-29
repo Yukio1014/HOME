@@ -2262,9 +2262,10 @@ function editExpenseItem(cat){
       </div>
       ${items.map((e,idx)=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid #F2F2F7;">
-          <div style="flex:1;">
-            <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
-            <input class="sheet-input" id="expNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注(可选)" style="width:130px;height:28px;font-size:12px;margin-left:8px;padding:0 8px;display:inline-block;">
+          <div style="flex:1;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:14px;font-weight:600;color:var(--label);">¥</span>
+            <input class="sheet-input" id="expAmt_${idx}" type="number" value="${e.amount||0}" placeholder="0" style="width:80px;height:30px;font-size:14px;font-weight:600;padding:0 8px;">
+            <input class="sheet-input" id="expNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注(可选)" style="flex:1;height:30px;font-size:12px;padding:0 8px;">
           </div>
           <button class="cmp-pair-edit" onclick="delExpenseEntry('${e.id}')">🗑</button>
         </div>
@@ -2356,9 +2357,11 @@ function saveExpenseItem(cat){
   // 保存预算
   const planEl = document.getElementById('editPlanCat');
   if(planEl) m.plan[finalCat] = parseFloat(planEl.value)||0;
-  // 保存备注
+  // 保存明细（金额 + 备注）
   const items = (m.expenses||[]).filter(e=>e.cat===finalCat && !e.isAdvance);
   items.forEach((e,idx)=>{
+    const amtEl = document.getElementById('expAmt_'+idx);
+    if(amtEl) e.amount = parseFloat(amtEl.value)||0;
     const noteEl = document.getElementById('expNote_'+idx);
     if(noteEl) e.note = noteEl.value.trim();
   });
