@@ -1936,46 +1936,10 @@ function renderMoney(c){
       </div>
     </div>
 
-    <!-- 超前消费（历史遗留账单） -->
-    <div class="card" style="border:0.5px solid #FFCC80;background:#FFF8E1;">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="color:#E65100;">⚠️ 超前消费</span>
-        <button class="edit-btn" style="color:#FF9500;" onclick="openAddAdvance()">＋ 添加</button>
-      </div>
-      <div style="background:linear-gradient(135deg,#FFF3E0,#FFE0B2);border-radius:10px;padding:12px;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-size:11px;color:#BF360C;">历史遗留账单合计</div>
-            <div style="font-size:22px;font-weight:700;color:#E65100;">¥${fmtMoney(advanceTotal)}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px;color:#BF360C;">共 ${advanceCount} 笔</div>
-            <div style="font-size:11px;color:#8D6E63;margin-top:2px;">预估 = 实际</div>
-          </div>
-        </div>
-      </div>
-      ${advanceCount > 0 ? `
-        <div class="cmp-pair-head">
-          <span class="cmp-pair-name">明细</span>
-          <span class="cmp-pair-col">金额</span>
-          <span class="cmp-pair-col">备注</span>
-          <span style="width:28px;"></span>
-        </div>
-        ${fin.advanceList.map(e=>`
-          <div class="cmp-pair-row">
-            <span class="cmp-pair-name">⚠️ ${e.note||'超前消费'}</span>
-            <span class="cmp-pair-col">¥${fmtMoney(e.amount)}</span>
-            <span class="cmp-pair-col" style="font-size:11px;color:var(--label-3);">${e.note||'-'}</span>
-            <button class="cmp-pair-edit" onclick="delAdvanceEntry('${e.id}')">🗑</button>
-          </div>
-        `).join('')}
-      ` : '<div style="font-size:12px;color:var(--label-3);padding:8px 0;">暂无超前消费记录</div>'}
-    </div>
-
-    <!-- 月度计划消费（预估 vs 实际） -->
+    <!-- 行动力补充（含超前消费） -->
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>月度计划消费</span>
+        <span>行动力补充</span>
         <div style="display:flex;gap:6px;">
           <button class="edit-btn" style="color:var(--red);" onclick="openAddExpenseItem()">＋ 消费</button>
           <button class="edit-btn" style="color:#007AFF;" onclick="openAddPlanCat()">＋ 分类</button>
@@ -1986,21 +1950,30 @@ function renderMoney(c){
       <div style="background:linear-gradient(135deg,#FFFFFF,#F9F9FB);border-radius:12px;padding:14px;margin-bottom:10px;border:0.5px solid #E5E5EA;">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px;">
           <div>
-            <div style="font-size:11px;color:var(--label-3);">预估总额</div>
+            <div style="font-size:11px;color:var(--label-3);">预估月生活费</div>
             <div style="font-size:22px;font-weight:700;color:var(--label);">¥${fmtMoney(planTotal)}</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px;color:var(--label-3);">实际总额</div>
-            <div style="font-size:22px;font-weight:700;color:${diffTotal>0?'var(--red)':'var(--green)'};">¥${fmtMoney(actualTotal)}</div>
+            <div style="font-size:11px;color:var(--label-3);">本月消费占比</div>
+            <div style="font-size:22px;font-weight:700;color:${diffTotal>0?'var(--red)':'var(--green)'};">${planTotal>0?Math.round(actualTotal/planTotal*100):0}%</div>
           </div>
         </div>
         <div style="background:#E5E5EA;height:6px;border-radius:3px;overflow:hidden;margin-bottom:6px;">
-          <div style="background:${diffTotal>0?'linear-gradient(90deg,#FF9500,#FF3B30)':'linear-gradient(90deg,#34C759,#30D158)'};width:${Math.min(100,diffPct)}%;height:100%;border-radius:3px;"></div>
+          <div style="background:${diffTotal>0?'linear-gradient(90deg,#FF9500,#FF3B30)':'linear-gradient(90deg,#34C759,#30D158)'};width:${Math.min(100,planTotal>0?Math.round(actualTotal/planTotal*100):0)}%;height:100%;border-radius:3px;"></div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:11px;">
-          <span style="color:var(--label-3);">实际用了${diffPct}%的预估</span>
+          <span style="color:var(--label-3);">实际 ¥${fmtMoney(actualTotal)}</span>
           <span style="color:${diffTotal>0?'var(--red)':'var(--green)'};font-weight:600;">${diffTotal>0?'超支':'节省'} ¥${fmtMoney(Math.abs(diffTotal))}</span>
         </div>
+        ${advanceTotal > 0 ? `
+        <div style="margin-top:8px;padding-top:8px;border-top:0.5px solid #E5E5EA;display:flex;justify-content:space-between;align-items:center;background:#FFF8E1;border-radius:8px;padding:8px 10px;margin-top:8px;">
+          <span style="font-size:12px;color:#E65100;">⚠️ 超前消费</span>
+          <div style="text-align:right;">
+            <span style="font-size:13px;color:#E65100;font-weight:700;">¥${fmtMoney(advanceTotal)}</span>
+            <span style="font-size:11px;color:#BF360C;margin-left:6px;">占比 ${planTotal>0?Math.round(advanceTotal/planTotal*100):0}%</span>
+          </div>
+        </div>
+        ` : ''}
       </div>
 
       <!-- 分类明细列表 -->
@@ -2142,14 +2115,18 @@ function saveTreasureField(field){
   toast('已保存');
 }
 
-// 获取消费明细行(预估 vs 实际对比 + 迷你进度条) —— 仅正常消费，超前消费独立板块
+// 获取消费明细行(预估 vs 实际对比 + 迷你进度条) —— 正常消费 + 超前消费汇总
 function getExpenseRows(fin, monthData){
   const cats = [...new Set([
     ...Object.keys(fin.plan||{}),
     ...Object.keys(fin.catSummary)
   ])];
-  if(!cats.length) return '<div class="cmp-pair-empty">暂无消费分类，点上方"＋分类"添加</div>';
-  return cats.map(cat=>{
+  let html = '';
+  if(!cats.length && !fin.advanceCount){
+    return '<div class="cmp-pair-empty">暂无消费明细，点上方"＋分类"或"＋消费"开始记录</div>';
+  }
+  // 正常消费分类行
+  html += cats.map(cat=>{
     const planned = (fin.plan||{})[cat] || 0;
     const actual = fin.catSummary[cat] || 0;
     const diff = actual - planned;
@@ -2162,8 +2139,8 @@ function getExpenseRows(fin, monthData){
     return `
       <div class="cmp-pair-row" style="flex-direction:column;align-items:stretch;">
         <div style="display:flex;align-items:center;">
-          <span class="cmp-pair-name">${cat}</span>
-          <span class="cmp-pair-col">¥ ${fmtMoney(planned)}</span>
+          <span class="cmp-pair-name" style="color:var(--label);">${cat}</span>
+          <span class="cmp-pair-col" style="color:var(--label);">¥ ${fmtMoney(planned)}</span>
           <span class="cmp-pair-col expense">¥ ${fmtMoney(actual)} ${diffStr}</span>
           <button class="cmp-pair-edit" onclick="editExpenseItem('${safeCat}')">✎</button>
         </div>
@@ -2174,6 +2151,22 @@ function getExpenseRows(fin, monthData){
       </div>
     `;
   }).join('');
+  // 超前消费汇总行（浅黄色突出）
+  if(fin.advanceCount > 0){
+    const advNotes = (fin.advanceList||[]).map(e=>'· '+(e.note||'超前消费')+' ¥'+fmtMoney(e.amount)).join('<br>');
+    html += `
+      <div class="cmp-pair-row" style="flex-direction:column;align-items:stretch;background:#FFF8E1;border-radius:8px;padding:8px;margin:4px 0;border-left:3px solid #FF9500;">
+        <div style="display:flex;align-items:center;">
+          <span class="cmp-pair-name" style="color:#E65100;font-weight:600;">⚠️ 超前消费</span>
+          <span class="cmp-pair-col" style="color:#BF360C;">¥ 0</span>
+          <span class="cmp-pair-col expense" style="color:#E65100;">¥ ${fmtMoney(fin.advanceTotal)} <span style="font-size:11px;">${fin.advanceCount}笔</span></span>
+          <span style="width:28px;"></span>
+        </div>
+        <div style="font-size:11px;color:#BF360C;padding:2px 0 0;line-height:1.4;">${advNotes}</div>
+      </div>
+    `;
+  }
+  return html;
 }
 
 // 添加消费明细(简化:默认支出,不需要选正负)
@@ -2201,6 +2194,12 @@ function openAddExpenseItem(){
       <div class="sheet-label">备注</div>
       <input class="sheet-input" id="expItemNote" placeholder="如:聚餐">
     </div>
+    <div class="sheet-field">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#E65100;">
+        <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;">
+        <span>⚠️ 超前消费（本期已花出去的钱）</span>
+      </label>
+    </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
       <button class="sheet-btn sheet-btn-primary" onclick="confirmAddExpenseItem()">添加</button>
@@ -2220,17 +2219,18 @@ function confirmAddExpenseItem(){
   const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
   const note = document.getElementById('expItemNote').value.trim();
+  const isAdvance = document.getElementById('expItemAdvance').checked;
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false});
+  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance});
   if(!m.plan) m.plan = {};
   if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
   emitSaved();
-  toast('已添加消费明细');
+  toast(isAdvance ? '已添加超前消费' : '已添加消费明细');
 }
 
 
@@ -2476,57 +2476,6 @@ function resetGoldOverride(){
   saveDB();
   renderMoney(document.getElementById('content'));
   toast('已恢复自动计算');
-}
-
-// ===== 超前消费管理 =====
-function openAddAdvance(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m){ toast('请先切换到有效月份'); return; }
-  openSheet(`
-    <div class="sheet-title">添加超前消费</div>
-    <div style="background:#FFF3E0;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#E65100;line-height:1.6;">
-      💡 超前消费指<b>以前已花出去、本月要还的钱</b>（如花呗分期、信用卡账单）。预估与实际一致，直接计入本月支出。
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">金额（元）</div>
-      <input class="sheet-input" id="advanceAmount" type="number" placeholder="0">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">备注</div>
-      <input class="sheet-input" id="advanceNote" placeholder="如:花呗分期 / 信用卡账单">
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="confirmAddAdvance()">添加</button>
-    </div>
-  `);
-}
-
-function confirmAddAdvance(){
-  const amount = parseFloat(document.getElementById('advanceAmount').value)||0;
-  if(!amount){ toast('请输入金额'); return; }
-  const note = document.getElementById('advanceNote').value.trim();
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  if(!m.expenses) m.expenses = [];
-  m.expenses.push({id:'a'+Date.now(),cat:'超前消费',amount,note,isAdvance:true});
-  saveDB();
-  closeSheet();
-  renderMoney(document.getElementById('content'));
-  emitSaved();
-  toast('已添加超前消费');
-}
-
-function delAdvanceEntry(id){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  m.expenses = (m.expenses||[]).filter(e=>e.id!==id);
-  saveDB();
-  renderMoney(document.getElementById('content'));
-  toast('已删除超前消费');
 }
 
 // ===== 新增预算分类 =====
