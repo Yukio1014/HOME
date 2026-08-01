@@ -889,10 +889,12 @@ const DB = {
       goldOverride:null,
       plannedBudget: 0,      // 计划消费预估总额
       plannedItems: [],      // 计划消费明细 [{id, tag, amount}]
-      advanceItems: [],      // 超前消费明细 [{id, tag, amount}]
-      tags: ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他']  // 8个标签
+      advanceItems: []       // 超前消费明细 [{id, tag, amount}]
     }
   },
+
+  // 全局标签（所有月份共享，跨月不变）
+  tags: ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'],
 
   // 年度计划(按年存储)
   yearlyPlans: {},
@@ -1132,17 +1134,21 @@ function loadDB(){
       loaded.rewardPool = loaded.settings.rewardPool||0;
     }
 
+    // 先处理全局 tags，再处理 finance（finance 里的月份级 tags 会合并到全局）
+    if(Array.isArray(loaded.tags) && loaded.tags.length){
+      DB.tags = loaded.tags.slice(0, 8);
+    }
+
     // 深合并:保留新字段,用已存数据覆盖
     Object.keys(loaded).forEach(key=>{
       if(key === 'finance'){
         Object.keys(loaded.finance||{}).forEach(mk=>{
           const m = loaded.finance[mk];
-          // 迁移到新结构：plannedItems / advanceItems / tags
+          // 迁移到新结构：plannedItems / advanceItems
           if(m.plannedItems === undefined){
             m.plannedItems = [];
             m.advanceItems = [];
             m.plannedBudget = 0;
-            m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
             // 旧 expenses 数据迁移
             if(m.expenses && Array.isArray(m.expenses)){
               m.expenses.forEach(e=>{
@@ -1160,9 +1166,15 @@ function loadDB(){
           if(m.plannedBudget === undefined) m.plannedBudget = 0;
           if(m.plannedItems === undefined) m.plannedItems = [];
           if(m.advanceItems === undefined) m.advanceItems = [];
-          if(m.tags === undefined || !m.tags.length) m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
+          // 兼容旧数据：把月份级 tags 合并到全局 DB.tags
+          if(m.tags && Array.isArray(m.tags) && m.tags.length){
+            m.tags.forEach(t=>{ if(DB.tags.indexOf(t) === -1 && DB.tags.length < 8) DB.tags.push(t); });
+          }
+          delete m.tags;  // 移除月份级 tags
           DB.finance[mk] = m;
         });
+      } else if(key === 'tags'){
+        // 全局 tags 已在上面处理，跳过
       } else if(key === 'study'){
         // 深合并 study:逐字段合并,保留默认值,只覆盖已存字段
         if(loaded.study.bigGoals) DB.study.bigGoals = loaded.study.bigGoals;
@@ -1257,7 +1269,7 @@ function calcMonthFinance(monthKey){
     plannedTotal, advanceTotal, expenseTotal, balance,
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
     plannedItems, advanceItems, plannedBudget,
-    tags: m.tags||['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'],
+    tags: DB.tags,
     goldPlanned, goldActual, goldOverride, goldFinal
   };
 }
@@ -2149,14 +2161,14 @@ function editTags(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  if(!m.tags) m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
+  
   renderTagsSheet();
 }
 
 function renderTagsSheet(){
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const tags = m.tags||[];
+  const tags = DB.tags||[];
   openSheet(`
     <div class="sheet-title">🏷 消费标签管理</div>
     <div style="background:#F0F4FF;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#3D5AFE;line-height:1.6;">
@@ -2184,17 +2196,17 @@ function addTag(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  if(!m.tags) m.tags = [];
-  if(m.tags.length >= 8){ toast('最多8个标签'); return; }
-  m.tags.push('新标签');
+  
+  if(DB.tags.length >= 8){ toast('最多8个标签'); return; }
+  DB.tags.push('新标签');
   renderTagsSheet();
 }
 
 function delTag(idx){
   haptic();
   const m = DB.finance[state.currentMonth];
-  if(!m || !m.tags) return;
-  m.tags.splice(idx,1);
+  if(!DB.tags) return;
+  DB.tags.splice(idx,1);
   renderTagsSheet();
 }
 
@@ -2202,8 +2214,8 @@ function saveTags(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  if(!m.tags) m.tags = [];
-  m.tags = m.tags.map((t,idx)=>{
+  
+  DB.tags = DB.tags.map((t,idx)=>{
     const el = document.getElementById('tag_'+idx);
     return el ? el.value.trim() || '未命名' : t;
   }).filter(t=>t);
@@ -2247,13 +2259,13 @@ function openAddPlannedItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m){ toast('请先切换到有效月份'); return; }
-  if(!m.tags) m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
+  
   openSheet(`
     <div class="sheet-title">添加计划消费</div>
     <div class="sheet-field">
       <div class="sheet-label">选择标签</div>
       <div class="cat-select" id="plannedItemTag">
-        ${m.tags.map((t,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectTag(this,\'planned\')">'+t+'</div>').join('')}
+        ${DB.tags.map((t,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectTag(this,\'planned\')">'+t+'</div>').join('')}
       </div>
     </div>
     <div class="sheet-field">
@@ -2283,7 +2295,7 @@ function confirmAddPlannedItem(){
   const m = DB.finance[state.currentMonth];
   if(!m) return;
   if(!m.plannedItems) m.plannedItems = [];
-  const tag = selectedPlannedTag || (m.tags&&m.tags[0]) || '其他';
+  const tag = selectedPlannedTag || (DB.tags&&DB.tags[0]) || '其他';
   m.plannedItems.push({id:'p'+Date.now(),tag,amount});
   saveDB();
   closeSheet();
@@ -2298,7 +2310,7 @@ function editPlannedList(){
   if(!m) return;
   const items = m.plannedItems||[];
   const total = items.reduce((s,e)=>s+(e.amount||0),0);
-  if(!m.tags) m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
+  
   openSheet(`
     <div class="sheet-title">编辑计划消费</div>
     <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;display:flex;justify-content:space-between;">
@@ -2310,7 +2322,7 @@ function editPlannedList(){
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#E3F2FD;border-radius:8px;padding:10px;border-left:3px solid #1976D2;">
           <div style="flex:1;">
             <select class="sheet-input" id="plannedTag_${idx}" style="margin-bottom:6px;">
-              ${m.tags.map(t=>'<option value="'+t+'"'+(t===e.tag?' selected':'')+'>'+t+'</option>').join('')}
+              ${DB.tags.map(t=>'<option value="'+t+'"'+(t===e.tag?' selected':'')+'>'+t+'</option>').join('')}
             </select>
             <div style="display:flex;align-items:center;gap:4px;">
               <span style="font-size:14px;color:var(--label);">¥</span>
@@ -2366,7 +2378,7 @@ function openAddAdvanceItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m){ toast('请先切换到有效月份'); return; }
-  if(!m.tags) m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
+  
   openSheet(`
     <div class="sheet-title">添加超前消费</div>
     <div style="background:#FFF3E0;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#E65100;line-height:1.6;">
@@ -2375,7 +2387,7 @@ function openAddAdvanceItem(){
     <div class="sheet-field">
       <div class="sheet-label">选择标签</div>
       <div class="cat-select" id="advanceItemTag">
-        ${m.tags.map((t,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectTag(this,\'advance\')">'+t+'</div>').join('')}
+        ${DB.tags.map((t,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectTag(this,\'advance\')">'+t+'</div>').join('')}
       </div>
     </div>
     <div class="sheet-field">
@@ -2395,7 +2407,7 @@ function confirmAddAdvanceItem(){
   const m = DB.finance[state.currentMonth];
   if(!m) return;
   if(!m.advanceItems) m.advanceItems = [];
-  const tag = selectedAdvanceTag || (m.tags&&m.tags[0]) || '其他';
+  const tag = selectedAdvanceTag || (DB.tags&&DB.tags[0]) || '其他';
   m.advanceItems.push({id:'a'+Date.now(),tag,amount});
   saveDB();
   closeSheet();
@@ -2410,7 +2422,7 @@ function editAdvanceItemList(){
   if(!m) return;
   const items = m.advanceItems||[];
   const total = items.reduce((s,e)=>s+(e.amount||0),0);
-  if(!m.tags) m.tags = ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'];
+  
   openSheet(`
     <div class="sheet-title">⚠️ 编辑超前消费</div>
     <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;display:flex;justify-content:space-between;">
@@ -2422,7 +2434,7 @@ function editAdvanceItemList(){
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#FFF8E1;border-radius:8px;padding:10px;border-left:3px solid #FF9500;">
           <div style="flex:1;">
             <select class="sheet-input" id="advanceTag_${idx}" style="margin-bottom:6px;">
-              ${m.tags.map(t=>'<option value="'+t+'"'+(t===e.tag?' selected':'')+'>'+t+'</option>').join('')}
+              ${DB.tags.map(t=>'<option value="'+t+'"'+(t===e.tag?' selected':'')+'>'+t+'</option>').join('')}
             </select>
             <div style="display:flex;align-items:center;gap:4px;">
               <span style="font-size:14px;color:var(--label);">¥</span>
@@ -2514,7 +2526,7 @@ function changeMonth(delta){
   const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   if(key < '2026-07') { toast('2026年7月是起始月'); return; }
   if(!DB.finance[key]){
-    DB.finance[key] = { incomePlanned:0, incomeActual:0, goldOverride:null, plannedBudget:0, plannedItems:[], advanceItems:[], tags:['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'] };
+    DB.finance[key] = { incomePlanned:0, incomeActual:0, goldOverride:null, plannedBudget:0, plannedItems:[], advanceItems:[] };
   }
   state.currentMonth = key;
   saveDB();
