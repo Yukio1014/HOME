@@ -1,13 +1,12 @@
 {
-  "name": "家有",
-  "short_name": "家有",
-  "description": "我的库存小窝",
-  "start_url": "./jiayou.html",
-  "scope": "./",
+  "name": "LIFE BALANCE STUDIO",
+  "short_name": "LIFE BALANCE",
+  "description": "个人生活管理·财务·学习·家庭·健康·社交·决策",
+  "start_url": "./life-balance-studio.html",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F2F2F7",
-  "theme_color": "#F2F2F7",
+  "background_color": "#f5f5f5",
+  "theme_color": "#4A90E2",
   "icons": [
     {
       "src": "icon-192.png",
@@ -18,12 +17,6 @@
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icon-1024.png",
-      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any maskable"
     }
