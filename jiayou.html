@@ -827,6 +827,15 @@ function getTotalStock(item) {
   return item.stock || 0;
 }
 
+function getItemTotalPrice(item) {
+  // 有变体：各变体 price × stock 之和
+  if (item.variants && item.variants.length > 0) {
+    return item.variants.reduce(function(s, v) { return s + (v.price || 0) * (v.stock || 0); }, 0);
+  }
+  // 无变体：currentPrice × stock
+  return (item.currentPrice || 0) * (item.stock || 0);
+}
+
 function ensureVariants(item) {
   if (!item.variants || item.variants.length === 0) {
     item.variants = [{
@@ -1018,7 +1027,13 @@ function renderHome() {
     html += '<div class="zone-name">' + escapeHtml(zone.name) + '</div>';
     html += '<div class="zone-desc">' + (zone.categories.length + '个分类') + '</div>';
     html += '</div>';
-    html += '<div class="zone-count">' + count + '件</div>';
+    var rightInfo = count + '件';
+    if (zone.type === 'durable') {
+      var zoneTotalPrice = 0;
+      zone.items.forEach(function(it) { zoneTotalPrice += getItemTotalPrice(it); });
+      if (zoneTotalPrice > 0) rightInfo += ' · ¥' + zoneTotalPrice;
+    }
+    html += '<div class="zone-count">' + rightInfo + '</div>';
     html += '</div>';
   });
   html += '</div>';
@@ -1035,10 +1050,14 @@ function renderHome() {
           if (daysBetween(new Date(it.lastUsedDate), new Date()) > 180) idleCount++;
         }
       });
+      var zoneTotalPrice = 0;
+      zone.items.forEach(function(it) { zoneTotalPrice += getItemTotalPrice(it); });
       html += '<div class="own-card" onclick="enterZone(\'' + zone.id + '\')">';
       html += '<div class="own-icon">' + zone.icon + '</div>';
       html += '<div class="own-name">' + zone.name + '</div>';
-      html += '<div><span class="own-num">' + total + '</span><span class="own-unit">件</span></div>';
+      html += '<div><span class="own-num">' + total + '</span><span class="own-unit">件</span>';
+      if (zoneTotalPrice > 0) html += '<span class="own-unit"> · ¥' + zoneTotalPrice + '</span>';
+      html += '</div>';
       if (idleCount > 0) {
         html += '<div class="own-idle">' + idleCount + '件闲置中</div>';
       }
@@ -1123,8 +1142,32 @@ function getItemStatus(item) {
   }
 
   // 库存（使用总库存）
-  if (item.stockThreshold && totalStock !== undefined) {
-    if (totalStock <= item.stockThreshold) status.lowStock = true;
+  // stockThreshold 支持 0（永不告急），默认 1
+  if (item.stockThreshold !== undefined && item.stockThreshold >= 0 && totalStock !== undefined) {
+    if (totalStock <= item.stockThreshold && item.stockThreshold > 0) {
+      // 检查是否需要等开封后 N 天才提醒
+      var minOpenDays = item.stockAlertMinDays || 0; // 开封后最少使用天数才提醒
+      if (minOpenDays > 0) {
+        // 找当前已开封的变体，检查是否已用够 minOpenDays
+        var variants = (item.variants && item.variants.length > 0) ? item.variants : [];
+        var allTooNew = variants.length > 0; // 假设所有变体都太新
+        variants.forEach(function(v) {
+          if (v.opened && v.openDate && !v.usedUp) {
+            var usedDays = daysBetween(new Date(v.openDate), new Date());
+            if (usedDays >= minOpenDays) allTooNew = false;
+          } else if (!v.opened) {
+            // 未开封的不参与判断
+          }
+        });
+        // 只有存在开封且已用够天数的变体时才告急
+        if (!allTooNew) {
+          status.lowStock = true;
+        }
+      } else {
+        // 没设开封天数，旧逻辑直接告急
+        status.lowStock = true;
+      }
+    }
   }
 
   // 囤太多：消耗速率计算
@@ -1312,16 +1355,27 @@ function renderZone() {
 
   // 拥有量大数字（耐用品）
   if (zone.type === 'durable') {
+    var zoneTotalPrice = 0;
+    zone.items.forEach(function(it) { zoneTotalPrice += getItemTotalPrice(it); });
+    var overviewText = '你已拥有 ' + zone.items.length + ' 件' + zone.name;
+    if (zoneTotalPrice > 0) overviewText += ' · ¥' + zoneTotalPrice;
     html += '<div class="zone-overview-num">' + zone.items.length + '</div>';
-    html += '<div class="zone-overview-label">你已拥有 ' + zone.items.length + ' 件' + zone.name + '</div>';
+    html += '<div class="zone-overview-label">' + overviewText + '</div>';
   }
 
   // 分类标签
   html += '<div class="cat-tabs">';
   html += '<div class="cat-tab ' + (currentCategoryId === 'all' ? 'active' : '') + '" onclick="selectCategory(\'all\')">全部</div>';
   zone.categories.forEach(function(cat) {
+    var catItems = getItemsByCategory(currentZoneId, cat.id);
+    var catCount = catItems.length;
+    var catTotalPrice = 0;
+    if (zone.type === 'durable') {
+      catItems.forEach(function(it) { catTotalPrice += getItemTotalPrice(it); });
+    }
     html += '<div class="cat-tab ' + (currentCategoryId === cat.id ? 'active' : '') + '" onclick="selectCategory(\'' + cat.id + '\')">';
-    html += escapeHtml(cat.name);
+    html += escapeHtml(cat.name) + ' ' + catCount;
+    if (zone.type === 'durable' && catTotalPrice > 0) html += ' · ¥' + catTotalPrice;
     html += '</div>';
   });
   html += '</div>';
@@ -1401,7 +1455,7 @@ function renderItemCard(item, zone) {
   }
 
   if (zone.type === 'consumable') {
-    // 消耗品正面：库存条 + 保质期
+    // 消耗品正面：库存条 + 保质期（不显示金额）
     var totalStock = getTotalStock(item);
     if (totalStock !== undefined) {
       var threshold = item.stockThreshold || 1;
@@ -1411,7 +1465,7 @@ function renderItemCard(item, zone) {
       if (status.overStock) barClass = 'over';
       else if (pct > 60) barClass = 'high';
       else if (pct > 30) barClass = 'mid';
-      html += '<div class="card-info">' + totalStock + (item.unit || '') + ' · ¥' + (item.currentPrice || 0) + '</div>';
+      html += '<div class="card-info">' + totalStock + (item.unit || '') + '</div>';
       html += '<div class="stock-bar ' + barClass + ' card-mini-bar"><div class="stock-fill" style="width:' + pct + '%"></div></div>';
     }
     if (status.daysLeft !== null && !status.expired) {
@@ -1419,7 +1473,14 @@ function renderItemCard(item, zone) {
       html += '<div class="card-info" style="color:' + shelfColor + ';font-weight:600">⏰ ' + status.daysLeft + '天</div>';
     }
   } else {
-    // 耐用品正面：存放位置 + 购买日期
+    // 耐用品正面：库存数量 + 金额 + 存放位置 + 闲置提醒
+    var totalStock = getTotalStock(item);
+    var itemTotalPrice = getItemTotalPrice(item);
+    if (totalStock !== undefined && totalStock > 0) {
+      var durableInfo = totalStock + '件';
+      if (itemTotalPrice > 0) durableInfo += ' · ¥' + itemTotalPrice;
+      html += '<div class="card-info">' + durableInfo + '</div>';
+    }
     if (item.location) {
       html += '<div class="card-info">📍 ' + escapeHtml(item.location) + '</div>';
     }
@@ -2116,8 +2177,10 @@ function openItemForm(itemId) {
     html += '</div>';
     html += '<div class="form-row">';
     html += '<div class="form-group"><label class="form-label">单位</label><input type="text" class="form-input" id="item-unit" value="' + (item?escapeHtml(item.unit||''):'个') + '"></div>';
-    html += '<div class="form-group"><label class="form-label">库存告急阈值</label><input type="number" class="form-input" id="item-threshold" value="' + (item?(item.stockThreshold||1):1) + '" step="0.5"></div>';
+    html += '<div class="form-group"><label class="form-label">库存告急阈值</label><input type="number" class="form-input" id="item-threshold" value="' + (item?(item.stockThreshold !== undefined ? item.stockThreshold : 1):1) + '" step="0.5" min="0"></div>';
     html += '</div>';
+    html += '<div class="form-group"><label class="form-label">开封后N天再提醒（选填，设0或不填=立刻提醒）</label>';
+    html += '<input type="number" class="form-input" id="item-alert-min-days" value="' + (item?(item.stockAlertMinDays||''):'') + '" placeholder="如：120（4个月后）" min="0"></div>';
   }
 
   html += '<div class="form-group"><label class="form-label">备注（选填）</label>';
@@ -2288,7 +2351,9 @@ function saveItem() {
     data.shelfLife = parseInt(document.getElementById('item-shelf').value) || null;
     var prodDate = document.getElementById('item-prod-date').value;
     data.productionDate = prodDate ? new Date(prodDate).toISOString() : null;
-    data.stockThreshold = parseFloat(document.getElementById('item-threshold').value) || 1;
+    data.stockThreshold = parseFloat(document.getElementById('item-threshold').value);
+    if (isNaN(data.stockThreshold)) data.stockThreshold = 1;
+    data.stockAlertMinDays = parseInt(document.getElementById('item-alert-min-days').value) || 0;
   } else {
     data.stock = parseFloat(document.getElementById('item-stock').value) || 0;
     data.unit = document.getElementById('item-unit').value || '个';
