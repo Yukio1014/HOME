@@ -6,11 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="LIFE BALANCE">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#4A90E2">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0OCIgZmlsbD0iIzFGMUEyNCIgc3Ryb2tlPSIjRjVDNTRDIiBzdHJva2Utd2lkdGg9IjQiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSIzOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMUY1OTQ0IiBzdHJva2Utd2lkdGg9IjEuNSIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjI4IiBmaWxsPSJub25lIiBzdHJva2U9IiMzQjgyNjYiIHN0cm9rZS13aWR0aD0iMSIvPjxwb2x5Z29uIHBvaW50cz0iNTAsMTggNTQsNDYgNTAsNDIgNDYsNDYiIGZpbGw9IiNGNkI2MEUiLz48cG9seWdvbiBwb2ludHM9IjUwLDgyIDU0LDU0IDUwLDU4IDQ2LDU0IiBmaWxsPSIjRTI1NzQyIi8+PHBvbHlnb24gcG9pbnRzPSIxOCw1MCA0Niw1NCA0Miw1MCA0Niw0NiIgZmlsbD0iIzU1QjUzRSIvPjxwb2x5Z29uIHBvaW50cz0iODIsNTAgNTQsNTQgNTgsNTAgNTQsNDYiIGZpbGw9IiNGNkI2MEUiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI1IiBmaWxsPSIjRjVDNTRDIi8+PHRleHQgeD0iNTAiIHk9IjEwIiBmb250LXNpemU9IjciIGZpbGw9IiNGNkI2MEUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIiPk48L3RleHQ+PHRleHQgeD0iNTAiIHk9Ijk2IiBmb250LXNpemU9IjciIGZpbGw9IiNFMjU3NDIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCI+UzwvdGV4dD48dGV4dCB4PSI5IiB5PSI1MyIgZm9udC1zaXplPSI3IiBmaWxsPSIjNTVCNTNFIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9ImJvbGQiPlc8L3RleHQ+PHRleHQgeD0iOTEiIHk9IjUzIiBmb250LXNpemU9IjciIGZpbGw9IiNGNkI2MEUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCI+RTwvdGV4dD48L3N2Zz4=">
 <title>LIFE BALANCE STUDIO</title>
 <style>/* ===== Life Balance Studio · iOS 浅色原生风格 ===== */
 :root{
@@ -890,15 +886,14 @@ const DB = {
     '2026-07':{
       incomePlanned: 0,
       incomeActual: 0,
+      hardExpenses:[],
+      catMeta:{},
       goldOverride:null,
-      plannedBudget: 0,      // 计划消费预估总额
-      plannedItems: [],      // 计划消费明细 [{id, tag, amount}]
-      advanceItems: []       // 超前消费明细 [{id, tag, amount}]
+      expenses:[],
+      reimbursements:[],
+      plan:{}
     }
   },
-
-  // 全局标签（所有月份共享，跨月不变）
-  tags: ['餐饮','交通','购物','娱乐','医疗','服饰','日用','其他'],
 
   // 年度计划(按年存储)
   yearlyPlans: {},
@@ -1001,10 +996,8 @@ function importData(input){
   reader.onload = function(e){
     try {
       const imported = JSON.parse(e.target.result);
-      // 容错：v3 数据库不再有 settings 字段，只要有 study 或 finance 等核心字段即可
-      const hasCore = !!(imported.study || imported.finance || imported.family || imported.social || imported.decisions || imported.savingsPlan || imported.treasure);
-      if(!hasCore){
-        toast('文件格式不正确（缺少核心字段）');
+      if(!imported.settings || !imported.study){
+        toast('文件格式不正确');
         return;
       }
       if(!confirm('导入将覆盖当前所有数据，确定继续？')) return;
@@ -1138,47 +1131,29 @@ function loadDB(){
       loaded.rewardPool = loaded.settings.rewardPool||0;
     }
 
-    // 先处理全局 tags，再处理 finance（finance 里的月份级 tags 会合并到全局）
-    if(Array.isArray(loaded.tags) && loaded.tags.length){
-      DB.tags = loaded.tags.slice(0, 8);
-    }
-
     // 深合并:保留新字段,用已存数据覆盖
     Object.keys(loaded).forEach(key=>{
       if(key === 'finance'){
         Object.keys(loaded.finance||{}).forEach(mk=>{
           const m = loaded.finance[mk];
-          // 迁移到新结构：plannedItems / advanceItems
-          if(m.plannedItems === undefined){
-            m.plannedItems = [];
-            m.advanceItems = [];
-            m.plannedBudget = 0;
-            // 旧 expenses 数据迁移
-            if(m.expenses && Array.isArray(m.expenses)){
-              m.expenses.forEach(e=>{
-                const item = {id: e.id||('m'+Date.now()+Math.random()), tag: e.cat||'其他', amount: e.amount||0};
-                if(e.isAdvance) m.advanceItems.push(item);
-                else m.plannedItems.push(item);
-              });
+          // 数据迁移: hardExpense(数字) -> hardExpenses(数组)
+          if(m.hardExpense !== undefined && m.hardExpenses === undefined){
+            if(typeof m.hardExpense === 'number' && m.hardExpense > 0){
+              m.hardExpenses = [{id:'h_'+mk,name:'硬性支出',amount:m.hardExpense,note:''}];
+            } else {
+              m.hardExpenses = [];
             }
-            // 旧 plan 的预估总额作为 plannedBudget
-            if(m.plan && typeof m.plan === 'object'){
-              m.plannedBudget = Object.values(m.plan).reduce((a,b)=>a+(b||0),0);
-            }
+            delete m.hardExpense;
           }
+          if(m.hardExpenses === undefined) m.hardExpenses = [];
+          if(m.catMeta === undefined) m.catMeta = {};
           if(m.goldOverride === undefined) m.goldOverride = null;
-          if(m.plannedBudget === undefined) m.plannedBudget = 0;
-          if(m.plannedItems === undefined) m.plannedItems = [];
-          if(m.advanceItems === undefined) m.advanceItems = [];
-          // 兼容旧数据：把月份级 tags 合并到全局 DB.tags
-          if(m.tags && Array.isArray(m.tags) && m.tags.length){
-            m.tags.forEach(t=>{ if(DB.tags.indexOf(t) === -1 && DB.tags.length < 8) DB.tags.push(t); });
+          if(m.reimbursements === undefined) m.reimbursements = [];
+          if(m.expenses && Array.isArray(m.expenses)){
+            m.expenses.forEach(e=>{ if(e.isAdvance === undefined) e.isAdvance = false; });
           }
-          delete m.tags;  // 移除月份级 tags
           DB.finance[mk] = m;
         });
-      } else if(key === 'tags'){
-        // 全局 tags 已在上面处理，跳过
       } else if(key === 'study'){
         // 深合并 study:逐字段合并,保留默认值,只覆盖已存字段
         if(loaded.study.bigGoals) DB.study.bigGoals = loaded.study.bigGoals;
@@ -1257,23 +1232,35 @@ function emitDecisions(){ state.listeners.decisions.forEach(f=>f()); }
 // ===== 计算工具 =====
 function calcMonthFinance(monthKey){
   const m = DB.finance[monthKey];
-  if(!m) return {plannedTotal:0,advanceTotal:0,expenseTotal:0,balance:0,goldPlanned:0,goldActual:0,goldOverride:null,goldFinal:0,plannedItems:[],advanceItems:[],plannedBudget:0,tags:[]};
-  const plannedItems = m.plannedItems||[];
-  const advanceItems = m.advanceItems||[];
-  const plannedBudget = m.plannedBudget||0;
-  const plannedTotal = plannedItems.reduce((s,e)=>s+(e.amount||0),0);
-  const advanceTotal = advanceItems.reduce((s,e)=>s+(e.amount||0),0);
-  const expenseTotal = plannedTotal + advanceTotal;
-  const goldPlanned = (m.incomePlanned||0) - plannedBudget - advanceTotal;
-  const goldActual = (m.incomeActual||0) - expenseTotal;
+  if(!m) return {expenseTotal:0,hardTotal:0,balance:0,catSummary:{},reimbTotal:0,advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,hardExpenses:[],reimbursements:[],plan:{},catMeta:{}};
+  const catSummary = {};
+  const advanceCats = {};
+  (m.expenses||[]).forEach(e=>{
+    catSummary[e.cat] = (catSummary[e.cat]||0) + e.amount;
+    if(e.isAdvance){
+      advanceCats[e.cat] = (advanceCats[e.cat]||0) + e.amount;
+    }
+  });
+  const monthExpense = Object.values(catSummary).reduce((a,b)=>a+b,0);
+  const hardExpenses = m.hardExpenses||[];
+  const hardTotal = hardExpenses.reduce((s,h)=>s+(h.amount||0),0);
+  const reimbursements = m.reimbursements||[];
+  const reimbTotal = reimbursements.reduce((s,r)=>s+(r.amount||0),0);
+  const advanceTotal = Object.values(advanceCats).reduce((a,b)=>a+b,0);
+  const advanceCount = (m.expenses||[]).filter(e=>e.isAdvance).length;
+  const expenseTotal = monthExpense + hardTotal;
+  const goldPlanned = (m.incomePlanned||0) - Object.values(m.plan||{}).reduce((a,b)=>a+b,0) - hardTotal;
+  const goldActual = (m.incomeActual||0) - monthExpense - hardTotal + reimbTotal;
   const goldOverride = m.goldOverride;
-  const goldFinal = goldOverride !== null && goldOverride !== undefined ? goldOverride : goldActual;
+  const goldFinal = goldOverride !== null ? goldOverride : goldActual;
   const balance = goldFinal;
   return {
-    plannedTotal, advanceTotal, expenseTotal, balance,
+    monthExpense, expenseTotal, balance, catSummary,
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
-    plannedItems, advanceItems, plannedBudget,
-    tags: DB.tags,
+    hardExpenses, hardTotal,
+    reimbursements, reimbTotal,
+    advanceTotal, advanceCount, advanceCats,
+    plan:m.plan, catMeta:m.catMeta||{},
     goldPlanned, goldActual, goldOverride, goldFinal
   };
 }
@@ -1388,6 +1375,14 @@ function fmtDate(){
   const weeks=['周日','周一','周二','周三','周四','周五','周六'];
   return `${d.getMonth()+1}月${d.getDate()}日 ${weeks[d.getDay()]}`;
 }
+function fmtInspDate(d){
+  if(!d) return '日期不详';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d)){
+    const [y,m,dd] = d.split('-');
+    return `${y}年${parseInt(m)}月${parseInt(dd)}日`;
+  }
+  return d;
+}
 function fmtMoney(n){ return (n||0).toLocaleString('zh-CN'); }
 function daysToBday(bd){
   if(!bd || typeof bd !== 'string') return 999;
@@ -1423,7 +1418,7 @@ function renderHome(c){
     <div class="section-title">今日战况</div>
 
     <div class="money-hero">
-      <div class="money-hero-label">${isEnded?(isSuccess?'🎉 任务成功':'💔 任务失败'):'存款目标进度'}</div>
+      <div class="money-hero-label">${isEnded?(isSuccess?'🎉 任务成功':'💔 任务失败'):'💰 金币大盘'}</div>
       <div class="money-hero-row">
         <div>
           <div class="money-hero-saved"><span class="currency">¥</span>${fmtMoney(savedAmount)}</div>
@@ -1445,6 +1440,13 @@ function renderHome(c){
         <span class="diff-value"><span class="currency">¥</span>${fmtMoney(Math.max(0,diff))}</span>
         <span class="diff-tail">达成自由</span>
       </div>
+      <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,.12);border-radius:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="switchModule('money');setTimeout(()=>scrollToFinanceReport(),100)">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:11px;color:rgba(255,255,255,.6);">📊 金币快报 · ${state.archiveYear}赛季</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.9);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${renderFinanceBrief(state.archiveYear)}</div>
+        </div>
+        <span style="font-size:12px;color:#FFD700;flex-shrink:0;margin-left:8px;font-weight:600;">数据深挖 ›</span>
+      </div>
     </div>
 
     <div class="card study-card">
@@ -1454,19 +1456,13 @@ function renderHome(c){
       </div>
     </div>
 
-    <div class="split-card">
-      <div class="card-title">事缓则圆</div>
-      <div class="split-row">
-        <div class="split-cell cool" onclick="switchModule('decision')">
-          <div class="split-cell-num">${countByStatus('悬案')}</div>
-          <div class="split-cell-label">悬案冷却中</div>
-          <div class="split-cell-sub">🤔 ${countByStatus('悬案')} 件待裁决</div>
+    <div class="card" style="padding:12px;margin-bottom:8px;cursor:pointer;" onclick="openInspirationTimeline()">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:15px;font-weight:600;">💡 灵感随笔</div>
+          <div style="font-size:12px;color:var(--label-3);margin-top:2px;">${getAllInspirations().length>0?'共 '+getAllInspirations().length+' 条 · 涉及 '+getInspirationBookCount()+' 本书':'记下每一本书给你的启发'}</div>
         </div>
-        <div class="split-cell todo" onclick="switchModule('decision')">
-          <div class="split-cell-num">${countByStatus('待办')}</div>
-          <div class="split-cell-label">待办执行中</div>
-          <div class="split-cell-sub">⏳ 别让它们吃灰</div>
-        </div>
+        <div style="font-size:20px;">${getAllInspirations().length>0?'📝':'✏️'}</div>
       </div>
     </div>
   `;
@@ -1479,22 +1475,33 @@ function analyzeYearFinance(year){
   const catTotals = {};
   let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0;
   let planAccuracySum = 0, planAccuracyCount = 0;
+  let totalAdvance = 0, advanceCount = 0;
+  const advanceByMonth = [];
 
   for(let m=1;m<=12;m++){
     const mk = yStr + '-' + String(m).padStart(2,'0');
     const fin = DB.finance[mk];
     if(!fin) continue;
     const monthCats = {};
-    let monthAdvance = 0;
-    (fin.plannedItems||[]).forEach(e=>{
-      monthCats[e.tag] = (monthCats[e.tag]||0) + (e.amount||0);
-      catTotals[e.tag] = (catTotals[e.tag]||0) + (e.amount||0);
+    let monthAdvance = 0, monthAdvanceCount = 0;
+    (fin.expenses||[]).forEach(e=>{
+      monthCats[e.cat] = (monthCats[e.cat]||0) + e.amount;
+      catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount;
+      if(e.isAdvance){
+        monthAdvance += e.amount;
+        monthAdvanceCount++;
+      }
     });
-    (fin.advanceItems||[]).forEach(e=>{ monthAdvance += (e.amount||0); });
-    const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0) + monthAdvance;
+    totalAdvance += monthAdvance;
+    advanceCount += monthAdvanceCount;
+    advanceByMonth.push({month:m, advance:monthAdvance, count:monthAdvanceCount});
+
+    const reimbursements = (fin.reimbursements||[]).reduce((s,r)=>s+(r.amount||0),0);
+    const hardTotal = (fin.hardExpenses||[]).reduce((s,h)=>s+(h.amount||0),0);
+    const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0) + hardTotal;
     const monthIncome = (fin.incomeActual||0);
-    const goldPlanned = (fin.incomePlanned||0) - (fin.plannedBudget||0) - monthAdvance;
-    const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthExpense);
+    const goldPlanned = (fin.incomePlanned||0) - Object.values(fin.plan||{}).reduce((a,b)=>a+b,0) - hardTotal;
+    const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthExpense + reimbursements);
 
     totalIncome += monthIncome;
     totalExpense += monthExpense;
@@ -1514,7 +1521,9 @@ function analyzeYearFinance(year){
       incomeActual: monthIncome,
       goldPlanned, goldActual,
       expense: monthExpense,
-      cats: monthCats
+      cats: monthCats,
+      advance: monthAdvance,
+      advanceCount: monthAdvanceCount
     });
   }
 
@@ -1527,6 +1536,7 @@ function analyzeYearFinance(year){
     months, totalIncome, totalExpense, totalGoldPlanned, totalGoldActual,
     topCat: topCat[0], topCatAmount: topCat[1],
     accuracy, catList, totalCatSpend,
+    totalAdvance, advanceCount, advanceByMonth,
     hasData: months.length > 0
   };
 }
@@ -1909,19 +1919,17 @@ function autoGeneratePlan(year){
 function renderMoney(c){
   const fin = calcMonthFinance(state.currentMonth);
   const [y,m] = state.currentMonth.split('-');
+  const monthData = DB.finance[state.currentMonth] || {incomePlanned:0,incomeActual:0,hardExpenses:[],catMeta:{},goldOverride:null,expenses:[],reimbursements:[],plan:{}};
 
-  // 计划消费
-  const plannedBudget = fin.plannedBudget || 0;
-  const plannedActual = fin.plannedTotal;
-  const plannedDiff = plannedActual - plannedBudget;
-  const plannedPct = plannedBudget > 0 ? Math.round(plannedActual/plannedBudget*100) : 0;
+  // 预估消费总额和实际消费总额
+  const planTotal = Object.values(fin.plan||{}).reduce((a,b)=>a+b,0);
+  const actualTotal = fin.monthExpense;
+  const diffTotal = actualTotal - planTotal;
+  const diffPct = planTotal > 0 ? Math.round(actualTotal/planTotal*100) : 0;
 
-  // 超前消费
-  const advanceTotal = fin.advanceTotal;
-  const advanceCount = fin.advanceItems.length;
-
-  // 总消费
-  const totalExpense = fin.expenseTotal;
+  // 超前消费统计
+  const advanceTotal = fin.advanceTotal || 0;
+  const advanceCount = fin.advanceCount || 0;
 
   c.innerHTML = `
     <div class="section-title">月度现金流监控</div>
@@ -1951,90 +1959,63 @@ function renderMoney(c){
       </div>
     </div>
 
-    <!-- 行动力补充 -->
+    <!-- 行动力补充（月度消费） -->
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
         <span>行动力补充</span>
-        <button class="edit-btn" style="color:#5856D6;" onclick="editTags()">🏷 标签</button>
+        <div style="display:flex;gap:6px;">
+          <button class="edit-btn" style="color:var(--red);" onclick="openAddExpenseItem()">＋消费</button>
+          <button class="edit-btn" style="color:#34C759;" onclick="openAddReimbursement()">＋报销</button>
+          <button class="edit-btn" onclick="editPlan()">预算</button>
+        </div>
       </div>
 
-      <!-- ① 计划消费（浅蓝方块） -->
-      <div style="background:#E3F2FD;border-radius:12px;padding:14px;margin-bottom:12px;border:0.5px solid #BBDEFB;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="font-size:14px;font-weight:600;color:#1565C0;">📋 计划消费</span>
-          <div style="display:flex;gap:6px;">
-            <button class="edit-btn" style="color:#1565C0;font-size:12px;" onclick="editPlannedBudget()">设置预估</button>
-            <button class="edit-btn" style="color:var(--red);" onclick="openAddPlannedItem()">＋ 消费</button>
-          </div>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
+      <!-- 总额对比小计卡片 -->
+      <div style="background:linear-gradient(135deg,#FFFFFF,#F9F9FB);border-radius:12px;padding:14px;margin-bottom:10px;border:0.5px solid #E5E5EA;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px;">
           <div>
-            <div style="font-size:11px;color:#1976D2;">预估总额</div>
-            <div style="font-size:22px;font-weight:700;color:#0D47A1;">¥${fmtMoney(plannedBudget)}</div>
+            <div style="font-size:11px;color:var(--label-3);">预估总额</div>
+            <div style="font-size:22px;font-weight:700;color:var(--label);">¥${fmtMoney(planTotal)}</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px;color:#1976D2;">实际消费</div>
-            <div style="font-size:22px;font-weight:700;color:${plannedDiff>0?'#D32F2F':'#388E3C'};">¥${fmtMoney(plannedActual)}</div>
+            <div style="font-size:11px;color:var(--label-3);">实际总额</div>
+            <div style="font-size:22px;font-weight:700;color:${diffTotal>0?'var(--red)':'var(--green)'};">¥${fmtMoney(actualTotal)}</div>
           </div>
         </div>
-        <div style="background:#BBDEFB;height:6px;border-radius:3px;overflow:hidden;margin-bottom:6px;">
-          <div style="background:${plannedDiff>0?'linear-gradient(90deg,#FF9500,#FF3B30)':'linear-gradient(90deg,#42A5F5,#1976D2)'};width:${Math.min(100,plannedPct)}%;height:100%;border-radius:3px;"></div>
+        <div style="background:#E5E5EA;height:6px;border-radius:3px;overflow:hidden;margin-bottom:6px;">
+          <div style="background:${diffTotal>0?'linear-gradient(90deg,#FF9500,#FF3B30)':'linear-gradient(90deg,#34C759,#30D158)'};width:${Math.min(100,diffPct)}%;height:100%;border-radius:3px;"></div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:11px;">
-          <span style="color:#1976D2;">${plannedPct}% 已用</span>
-          <span style="color:${plannedDiff>0?'#D32F2F':'#388E3C'};font-weight:600;">${plannedDiff>0?'超支':'剩余'} ¥${fmtMoney(Math.abs(plannedDiff))}</span>
+          <span style="color:var(--label-3);">实际用了${diffPct}%的预估</span>
+          <span style="color:${diffTotal>0?'var(--red)':'var(--green)'};font-weight:600;">${diffTotal>0?'超支':'节省'} ¥${fmtMoney(Math.abs(diffTotal))}</span>
         </div>
-        ${fin.plannedItems.length > 0 ? `
-          <div style="margin-top:10px;padding-top:8px;border-top:0.5px solid #BBDEFB;">
-            ${fin.plannedItems.map(e=>`
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;">
-                <span style="color:#0D47A1;">
-                  <span style="display:inline-block;background:#BBDEFB;color:#0D47A1;border-radius:4px;padding:1px 6px;font-size:11px;margin-right:6px;">${e.tag}</span>
-                  ¥${fmtMoney(e.amount)}
-                </span>
-                <button class="cmp-pair-edit" style="font-size:12px;" onclick="editPlannedList()">✎</button>
-              </div>
-            `).join('')}
-          </div>
-        ` : '<div style="font-size:12px;color:#90A4AE;padding:6px 0;">暂无消费记录</div>'}
+        ${advanceTotal > 0 ? `
+        <div style="margin-top:8px;padding-top:8px;border-top:0.5px solid #E5E5EA;font-size:11px;color:#FF9500;">
+          ⚠️ 超前消费: ¥${fmtMoney(advanceTotal)} (${advanceCount}笔)
+        </div>
+        ` : ''}
       </div>
 
-      <!-- ② 超前消费（浅黄方块） -->
-      <div style="background:#FFF8E1;border-radius:12px;padding:14px;margin-bottom:12px;border:0.5px solid #FFE0B2;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="font-size:14px;font-weight:600;color:#E65100;">⚠️ 超前消费</span>
-          <button class="edit-btn" style="color:#FF9500;" onclick="openAddAdvanceItem()">＋ 添加</button>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
-          <div>
-            <div style="font-size:11px;color:#BF360C;">合计</div>
-            <div style="font-size:22px;font-weight:700;color:#E65100;">¥${fmtMoney(advanceTotal)}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px;color:#BF360C;">共 ${advanceCount} 笔</div>
-            <div style="font-size:11px;color:#8D6E63;margin-top:2px;">历史遗留账单</div>
-          </div>
-        </div>
-        ${fin.advanceItems.length > 0 ? `
-          <div style="margin-top:10px;padding-top:8px;border-top:0.5px solid #FFE0B2;">
-            ${fin.advanceItems.map(e=>`
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;">
-                <span style="color:#E65100;">
-                  <span style="display:inline-block;background:#FFE0B2;color:#E65100;border-radius:4px;padding:1px 6px;font-size:11px;margin-right:6px;">${e.tag}</span>
-                  ¥${fmtMoney(e.amount)}
-                </span>
-                <button class="cmp-pair-edit" style="font-size:12px;" onclick="editAdvanceItemList()">✎</button>
-              </div>
-            `).join('')}
-          </div>
-        ` : '<div style="font-size:12px;color:#A1887F;padding:6px 0;">暂无超前消费</div>'}
+      <!-- 分类明细列表 -->
+      <div class="cmp-pair-head">
+        <span class="cmp-pair-name">明细</span>
+        <span class="cmp-pair-col">预估</span>
+        <span class="cmp-pair-col">实际</span>
+        <span style="width:28px;"></span>
       </div>
+      ${getExpenseRows(fin, monthData)}
+
+      <!-- 硬性支出列表 -->
+      ${renderHardExpenseList(fin)}
+
+      <!-- 报销回流记录 -->
+      ${renderReimbursementList(fin)}
 
       <!-- 合计 -->
       <div class="cmp-pair-row total-row">
         <span class="cmp-pair-name">消费合计</span>
-        <span class="cmp-pair-col">¥${fmtMoney(plannedBudget + advanceTotal)}</span>
-        <span class="cmp-pair-col expense">¥${fmtMoney(totalExpense)}</span>
+        <span class="cmp-pair-col">¥${fmtMoney(planTotal + fin.hardTotal)}</span>
+        <span class="cmp-pair-col expense">¥${fmtMoney(fin.expenseTotal)}</span>
         <span style="width:28px;"></span>
       </div>
     </div>
@@ -2044,7 +2025,7 @@ function renderMoney(c){
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
         <span style="color:#fff;">💰 月结金币</span>
         <div style="display:flex;gap:6px;">
-          ${fin.goldOverride !== null && fin.goldOverride !== undefined ? `<button class="edit-btn" style="color:#FFD700;" onclick="resetGoldOverride()">恢复自动</button>` : ''}
+          ${fin.goldOverride !== null ? `<button class="edit-btn" style="color:#FFD700;" onclick="resetGoldOverride()">恢复自动</button>` : ''}
           <button class="edit-btn" style="color:#fff;" onclick="editGoldOverride()">覆盖</button>
         </div>
       </div>
@@ -2060,20 +2041,343 @@ function renderMoney(c){
         <span class="cmp-pair-col" style="color:#fff;font-weight:600;">¥ ${fmtMoney(fin.goldFinal)}</span>
         <span style="width:28px;"></span>
       </div>
-      ${fin.goldOverride !== null && fin.goldOverride !== undefined ? '<div style="font-size:11px;color:#FFD700;padding:4px 0;">⚠️ 已手动覆盖</div>' : ''}
+      ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;padding:4px 0;">⚠️ 已手动覆盖</div>' : ''}
       <div style="font-size:11px;color:rgba(255,255,255,.5);padding:4px 0;">
-        = 实际工资 - 月度消费 - 超前消费
+        = 实际工资 - 消费 + 报销 ¥${fmtMoney(fin.reimbTotal)}
       </div>
     </div>
 
     <!-- 封印宝箱 -->
     ${renderTreasureChest()}
 
+    <!-- 经济战报 -->
+    <div id="financeReportAnchor"></div>
+    ${renderFinanceReport(state.archiveYear)}
+
     <div style="height:20px;"></div>
   `;
 }
 
-// ===== 封印宝箱 ===== =====
+// ===== 硬性支出列表渲染 =====
+function renderHardExpenseList(fin){
+  if(!fin.hardExpenses || !fin.hardExpenses.length) return `
+    <div style="padding:8px 0;border-top:0.5px solid var(--separator);margin-top:4px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;color:var(--label);">硬性支出</span>
+        <button class="edit-btn" style="font-size:12px;" onclick="editHardExpense()">＋ 添加</button>
+      </div>
+      <div style="font-size:12px;color:var(--label-3);padding:4px 0;">暂无硬性支出</div>
+    </div>
+  `;
+  const total = fin.hardTotal;
+  return `
+    <div style="padding:8px 0;border-top:0.5px solid var(--separator);margin-top:4px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;color:var(--label);">硬性支出</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:13px;color:var(--red);font-weight:600;">¥${fmtMoney(total)}</span>
+          <button class="edit-btn" style="font-size:12px;" onclick="editHardExpense()">编辑</button>
+        </div>
+      </div>
+      ${fin.hardExpenses.map(h=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;">
+          <span style="color:var(--label-2);">${h.name}${h.note?' · '+h.note:''}</span>
+          <span>¥${fmtMoney(h.amount)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ===== 报销回流列表渲染 =====
+function renderReimbursementList(fin){
+  if(!fin.reimbursements || !fin.reimbursements.length) return '';
+  return `
+    <div style="padding:8px 0;border-top:0.5px solid var(--separator);margin-top:4px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;color:#34C759;">报销回流</span>
+        <span style="font-size:13px;color:#34C759;font-weight:600;">+¥${fmtMoney(fin.reimbTotal)}</span>
+      </div>
+      ${fin.reimbursements.map(r=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;">
+          <span style="color:var(--label-2);">💸 ${r.note||'报销'}</span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="color:#34C759;">+¥${fmtMoney(r.amount)}</span>
+            <button class="cmp-pair-edit" style="font-size:12px;" onclick="delReimbursement('${r.id}')">🗑</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function delReimbursement(id){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.reimbursements) return;
+  m.reimbursements = m.reimbursements.filter(r=>r.id!==id);
+  saveDB();
+  renderMoney(document.getElementById('content'));
+  toast('已删除报销记录');
+}
+
+// ===== 经济战报（静态财务分析）=====
+function renderFinanceBrief(year){
+  const fin = analyzeYearFinance(year);
+  if(!fin.hasData) return '暂无'+year+'赛季数据';
+  const gold = DB.yearGoldOverride?.[year] ?? fin.totalGoldActual;
+  const advanceTxt = fin.totalAdvance>0 ? ' · 越界¥'+fmtMoney(fin.totalAdvance) : '';
+  return '存¥'+fmtMoney(gold)+' · 消耗¥'+fmtMoney(fin.totalExpense)+advanceTxt;
+}
+
+function scrollToFinanceReport(){
+  const el = document.getElementById('financeReportAnchor');
+  if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function renderFinanceReport(year){
+  const fin = analyzeYearFinance(year);
+  const prevFin = analyzeYearFinance(year-1);
+  const plan = DB.yearlyPlans[String(year)] || {};
+
+  // 可选年份列表
+  const dataYears = new Set();
+  Object.keys(DB.finance||{}).forEach(mk=>dataYears.add(parseInt(mk.slice(0,4))));
+  dataYears.add(new Date().getFullYear());
+  const yearOptions = Array.from(dataYears).sort((a,b)=>b-a);
+
+  if(!fin.hasData){
+    return `
+      <div class="card" style="padding:12px;margin-top:8px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-size:15px;font-weight:600;">📊 经济战报</div>
+          <select class="sheet-input" style="width:80px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveYear=parseInt(this.value);renderMoney(document.getElementById('content'))">
+            ${yearOptions.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}赛季</option>`).join('')}
+          </select>
+        </div>
+        <div style="text-align:center;padding:16px;color:var(--label-3);font-size:14px;">${year}赛季暂无财务数据</div>
+      </div>
+    `;
+  }
+
+  const gold = DB.yearGoldOverride?.[year] ?? fin.totalGoldActual;
+  const goldDiff = gold - fin.totalGoldPlanned;
+  const hasPrev = prevFin.hasData;
+  const prevGold = hasPrev ? (DB.yearGoldOverride?.[year-1] ?? prevFin.totalGoldActual) : 0;
+
+  // 超前消费对比结论
+  let advanceVerdict = '';
+  if(hasPrev && prevFin.totalAdvance>0){
+    if(fin.totalAdvance < prevFin.totalAdvance) advanceVerdict = '↓ 越界金额较上赛季减少 ¥'+fmtMoney(prevFin.totalAdvance-fin.totalAdvance)+'，继续保持！';
+    else if(fin.totalAdvance > prevFin.totalAdvance) advanceVerdict = '↑ 越界金额较上赛季增加 ¥'+fmtMoney(fin.totalAdvance-prevFin.totalAdvance)+'，需警惕';
+    else advanceVerdict = '→ 越界金额与上赛季持平';
+  } else if(!hasPrev){
+    advanceVerdict = fin.totalAdvance>0 ? '暂无上赛季档案，无法对比' : '本赛季无越界记录';
+  } else {
+    advanceVerdict = fin.totalAdvance>0 ? '上赛季无越界记录，本赛季新增' : '本赛季无越界记录';
+  }
+
+  // 年度计划对照
+  const hasPlan = plan && (plan.incomeTarget || plan.savingTarget || plan.studyGoal || plan.notes);
+  const planSavingDiff = hasPlan && plan.savingTarget ? (gold - plan.savingTarget) : null;
+  const actualAvgIncome = fin.months.length>0 ? Math.round(fin.totalIncome/fin.months.length) : 0;
+  const planIncomeDiff = hasPlan && plan.incomeTarget ? (actualAvgIncome - plan.incomeTarget) : null;
+
+  return `
+    <div class="card" style="padding:12px;margin-top:8px;margin-bottom:8px;border:1px solid var(--separator);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:16px;font-weight:700;">📊 经济战报</div>
+        <select class="sheet-input" style="width:80px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveYear=parseInt(this.value);renderMoney(document.getElementById('content'))">
+          ${yearOptions.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}赛季</option>`).join('')}
+        </select>
+      </div>
+
+      <!-- 板块1: 预言vs现实 -->
+      <div style="background:linear-gradient(135deg,#667eea33,#764ba233);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #667eea22;">
+        <div style="font-size:14px;font-weight:700;color:#5B4B8A;margin-bottom:8px;">🔮 预言vs现实</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;text-align:center;background:rgba(90,200,250,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">赛季预估收益</div>
+            <div style="font-size:16px;font-weight:700;color:var(--blue);">¥${fmtMoney(fin.totalGoldPlanned)}</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(52,199,89,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">赛季实收金币</div>
+            <div style="font-size:16px;font-weight:700;color:var(--green);">¥${fmtMoney(gold)}</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,149,0,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">预判误差</div>
+            <div style="font-size:16px;font-weight:700;color:${goldDiff>=0?'var(--green)':'var(--red)'};">${goldDiff>=0?'+':''}¥${fmtMoney(goldDiff)}</div>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:12px;color:var(--label-3);">
+          🔮 占卜精准度: <span style="font-weight:700;color:${fin.accuracy>=80?'var(--green)':fin.accuracy>=60?'var(--orange)':'var(--red)'};">${fin.accuracy}%</span>
+        </div>
+        <div style="margin-top:8px;">
+          ${fin.months.map(m=>`
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <span style="font-size:11px;color:var(--label-3);width:28px;flex-shrink:0;">${m.month}月</span>
+              <div style="flex:1;display:flex;flex-direction:column;gap:2px;">
+                <div style="background:#E5E5EA;height:5px;border-radius:2px;overflow:hidden;">
+                  <div style="background:var(--blue);width:${Math.min(100, Math.abs(m.goldPlanned)/200)}%;height:100%;border-radius:2px;"></div>
+                </div>
+                <div style="background:#E5E5EA;height:5px;border-radius:2px;overflow:hidden;">
+                  <div style="background:${m.goldActual>=0?'var(--green)':'var(--red)'};width:${Math.min(100, Math.abs(m.goldActual)/200)}%;height:100%;border-radius:2px;"></div>
+                </div>
+              </div>
+              <span style="font-size:10px;color:var(--label-3);width:70px;flex-shrink:0;text-align:right;">¥${fmtMoney(m.goldActual)}</span>
+            </div>
+          `).join('')}
+          <div style="display:flex;gap:12px;font-size:10px;color:var(--label-3);margin-top:4px;padding-left:34px;">
+            <span><span style="display:inline-block;width:8px;height:8px;background:var(--blue);border-radius:2px;margin-right:3px;"></span>预估</span>
+            <span><span style="display:inline-block;width:8px;height:8px;background:var(--green);border-radius:2px;margin-right:3px;"></span>实际</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 板块2: 资源消耗TOP榜 -->
+      <div style="background:linear-gradient(135deg,#ff950022,#ff3b3022);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff950022;">
+        <div style="font-size:14px;font-weight:700;color:#CC5500;margin-bottom:8px;">🔥 资源消耗TOP榜</div>
+        <div style="background:rgba(255,149,0,.15);border-radius:8px;padding:8px 10px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:20px;">🕳️</span>
+          <div>
+            <div style="font-size:11px;color:var(--label-3);">金币黑洞TOP1</div>
+            <div style="font-size:15px;font-weight:700;color:var(--red);">${fin.topCat} · ¥${fmtMoney(fin.topCatAmount)}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">消耗结构饼图</div>
+        ${fin.catList.map(([cat,amount])=>{
+          const pct = fin.totalCatSpend > 0 ? Math.round(amount/fin.totalCatSpend*100) : 0;
+          return `
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <span style="font-size:12px;color:var(--label-2);width:60px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cat}</span>
+              <div style="flex:1;background:#E5E5EA;height:8px;border-radius:4px;overflow:hidden;">
+                <div style="background:linear-gradient(90deg,#FF9500,#FF3B30);width:${pct}%;height:100%;border-radius:4px;"></div>
+              </div>
+              <span style="font-size:11px;color:var(--label-3);width:80px;flex-shrink:0;text-align:right;">¥${fmtMoney(amount)} · ${pct}%</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <!-- 板块3: 越界监控面板 -->
+      <div style="background:linear-gradient(135deg,#ff3b3018,#00000018);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff3b3022;">
+        <div style="font-size:14px;font-weight:700;color:#CC0000;margin-bottom:8px;">⚠️ 越界监控面板</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">透支金币比率</div>
+            <div style="font-size:16px;font-weight:700;color:var(--red);">¥${fmtMoney(fin.totalAdvance)}</div>
+            <div style="font-size:10px;color:var(--label-3);">${fin.totalExpense>0?Math.round(fin.totalAdvance/fin.totalExpense*100)+'%占比':''}</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">越界交易次数</div>
+            <div style="font-size:16px;font-weight:700;color:var(--orange);">${fin.advanceCount}次</div>
+          </div>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">越界趋势线</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:50px;margin-bottom:4px;">
+          ${Array.from({length:12},(_,i)=>{
+            const m = fin.advanceByMonth.find(x=>x.month===i+1);
+            const val = m?m.advance:0;
+            const maxAdv = Math.max(...fin.advanceByMonth.map(x=>x.advance),1);
+            const h = val>0 ? Math.max(8, Math.round(val/maxAdv*40)) : 0;
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+              <div style="width:100%;background:${val>0?'linear-gradient(180deg,#FF9500,#FF3B30)':'#E5E5EA'};height:${val>0?h:3}px;border-radius:2px 2px 0 0;"></div>
+              <span style="font-size:9px;color:var(--label-3);">${i+1}月</span>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:12px;color:${advanceVerdict.startsWith('↓')?'var(--green)':advanceVerdict.startsWith('↑')?'var(--red)':'var(--label-3)'};font-weight:600;text-align:center;padding:6px 0;border-top:1px solid var(--separator);margin-top:4px;">
+          ${advanceVerdict}
+        </div>
+      </div>
+
+      <!-- 板块4: 跨赛季对战记录 -->
+      <div style="background:linear-gradient(135deg,#00bcd422,#00968822);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #00bcd422;">
+        <div style="font-size:14px;font-weight:700;color:#00838F;margin-bottom:8px;">⚔️ 跨赛季对战记录 <span style="font-size:12px;font-weight:400;color:var(--label-3);">${year} vs ${year-1}</span></div>
+        ${!hasPrev ? `
+          <div style="text-align:center;padding:12px;color:var(--label-3);font-size:13px;">📭 暂无上赛季档案</div>
+        ` : `
+          ${renderYearCompareRow('宝箱实际填充量', gold, prevGold, '¥')}
+          ${renderYearCompareRow('总产出', fin.totalIncome, prevFin.totalIncome, '¥')}
+          ${renderYearCompareRow('总消耗', fin.totalExpense, prevFin.totalExpense, '¥', true)}
+          ${renderYearCompareRow('越界交易', fin.totalAdvance, prevFin.totalAdvance, '¥', true)}
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(0,188,212,.1);border-radius:8px;margin-top:4px;">
+            <span style="font-size:12px;color:var(--label-2);">💎 金币黑洞TOP1</span>
+            <span style="font-size:12px;">${fin.topCat} <span style="color:var(--label-3);">vs</span> ${prevFin.topCat}</span>
+          </div>
+        `}
+      </div>
+
+      <!-- 板块5: 主线任务完成度 -->
+      <div style="background:linear-gradient(135deg,#FFD70022,#FFA50022);border-radius:12px;padding:12px;border:1px solid #FFD70033;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-size:14px;font-weight:700;color:#B8860B;">🎯 主线任务完成度</div>
+          <button class="edit-btn" style="font-size:12px;color:#B8860B;" onclick="openYearPlanEditor(${year-1})">${hasPlan?'攻略规划':'攻略规划'}</button>
+        </div>
+        ${!hasPlan ? `
+          <div style="text-align:center;padding:12px;color:var(--label-3);font-size:13px;">
+            📋 尚未开启${year}赛季攻略<br>
+            <button class="edit-btn" style="color:var(--blue);margin-top:6px;font-size:13px;" onclick="openYearPlanEditor(${year-1})">✨ 攻略规划</button>
+          </div>
+        ` : `
+          ${plan.savingTarget ? `
+            <div style="margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                <span style="color:var(--label-3);">赛季存金目标</span>
+                <span style="font-weight:600;">¥${fmtMoney(plan.savingTarget)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                <span style="color:var(--label-3);">宝箱实际填充量</span>
+                <span style="font-weight:600;color:var(--green);">¥${fmtMoney(gold)}</span>
+              </div>
+              <div style="background:#E5E5EA;height:8px;border-radius:4px;overflow:hidden;margin-bottom:4px;">
+                <div style="background:linear-gradient(90deg,#FFD700,#FFA500);width:${Math.min(100,Math.round(gold/Math.max(plan.savingTarget,1)*100))}%;height:100%;border-radius:4px;"></div>
+              </div>
+              <div style="font-size:12px;text-align:center;color:${planSavingDiff>=0?'var(--green)':'var(--red)'};font-weight:600;">
+                ${planSavingDiff>=0?'✅ 超额完成 +¥'+fmtMoney(planSavingDiff):'⚠️ 还差 ¥'+fmtMoney(Math.abs(planSavingDiff))+' · '+Math.round(gold/Math.max(plan.savingTarget,1)*100)+'%'}
+              </div>
+            </div>
+          ` : ''}
+          ${plan.incomeTarget ? `
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-top:1px solid var(--separator);">
+              <span style="color:var(--label-3);">月度刷金里程碑</span>
+              <span style="font-weight:600;">¥${fmtMoney(plan.incomeTarget)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;">
+              <span style="color:var(--label-3);">月均刷金效率</span>
+              <span style="font-weight:600;color:${planIncomeDiff>=0?'var(--green)':'var(--red)'};">¥${fmtMoney(actualAvgIncome)} ${planIncomeDiff>=0?'↑':'↓'}</span>
+            </div>
+          ` : ''}
+          ${plan.notes ? `
+            <div style="font-size:12px;color:var(--label-2);padding:8px 0;border-top:1px solid var(--separator);line-height:1.5;">📝 ${plan.notes}</div>
+          ` : ''}
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderYearCompareRow(label, curr, prev, prefix, reverseColor){
+  const diff = curr - prev;
+  const isUp = diff > 0;
+  const isFlat = diff === 0;
+  // reverseColor=true 表示越少越好（如支出、超前消费）
+  const good = reverseColor ? !isUp : isUp;
+  const color = isFlat ? 'var(--label-3)' : (good ? 'var(--green)' : 'var(--red)');
+  const arrow = isFlat ? '→' : (isUp ? '↑' : '↓');
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-bottom:1px solid var(--separator);">
+      <span style="font-size:12px;color:var(--label-2);">${label}</span>
+      <div style="text-align:right;">
+        <span style="font-size:13px;font-weight:600;">${prefix}${fmtMoney(curr)}</span>
+        <span style="font-size:11px;color:var(--label-3);margin-left:4px;">vs ${prefix}${fmtMoney(prev)}</span>
+        <span style="font-size:12px;font-weight:700;color:${color};margin-left:4px;">${arrow} ${prefix}${fmtMoney(Math.abs(diff))}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ===== 封印宝箱 =====
 function renderTreasureChest(){
   syncLootToBase();
   const total = getTreasureTotal();
@@ -2160,335 +2464,243 @@ function saveTreasureField(field){
   toast('已保存');
 }
 
-// ===== 标签管理 =====
-function editTags(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  
-  renderTagsSheet();
-}
-
-function renderTagsSheet(){
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  const tags = DB.tags||[];
-  openSheet(`
-    <div class="sheet-title">🏷 消费标签管理</div>
-    <div style="background:#F0F4FF;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#3D5AFE;line-height:1.6;">
-      💡 标签用于标记每笔消费的类别。最多 8 个，可编辑名称或删除。两个板块共用同一套标签。
-    </div>
-    <div id="tagList">
-      ${tags.map((t,idx)=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <input class="sheet-input" id="tag_${idx}" value="${t.replace(/"/g,'&quot;')}" placeholder="标签名" style="flex:1;">
-          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delTag(${idx})">🗑</button>
+// 获取消费明细行(预估 vs 实际对比 + 迷你进度条)
+function getExpenseRows(fin, monthData){
+  const cats = [...new Set([
+    ...Object.keys(fin.plan||{}),
+    ...Object.keys(fin.catSummary)
+  ])];
+  if(!cats.length && !(monthData.expenses||[]).length) return '<div class="cmp-pair-empty">暂无消费明细</div>';
+  const planTotal = Object.values(fin.plan||{}).reduce((a,b)=>a+b,0);
+  return cats.map(cat=>{
+    const planned = (fin.plan||{})[cat] || 0;
+    const actual = fin.catSummary[cat] || 0;
+    const diff = actual - planned;
+    const isAdvance = (monthData.expenses||[]).some(e=>e.cat===cat && e.isAdvance);
+    const pct = planned > 0 ? Math.min(100, Math.round(actual/planned*100)) : (actual>0?100:0);
+    const barColor = diff > 0 ? '#FF9500' : (diff < 0 ? '#34C759' : '#007AFF');
+    const diffStr = diff===0 ? '<span style="color:var(--label-3);font-size:11px;">刚好</span>' : (diff>0 ? '<span style="color:#FF9500;font-size:11px;">超¥'+fmtMoney(diff)+'</span>' : '<span style="color:#34C759;font-size:11px;">省¥'+fmtMoney(-diff)+'</span>');
+    const notes = (monthData.expenses||[]).filter(e=>e.cat===cat && e.note);
+    const notesHtml = notes.length ? '<div style="font-size:11px;color:var(--label-3);padding:2px 0 0;line-height:1.4;">' + notes.map(e=>'· '+e.note+(e.isAdvance?' ⚠️':'')).join('<br>') + '</div>' : '';
+    const safeCat = cat.replace(/'/g,'').replace(/"/g,'');
+    return `
+      <div class="cmp-pair-row" style="flex-direction:column;align-items:stretch;">
+        <div style="display:flex;align-items:center;">
+          <span class="cmp-pair-name">${cat}${isAdvance?' <span style="color:#FF9500;font-size:10px;">⚠️</span>':''}</span>
+          <span class="cmp-pair-col">¥ ${fmtMoney(planned)}</span>
+          <span class="cmp-pair-col expense">¥ ${fmtMoney(actual)} ${diffStr}</span>
+          <button class="cmp-pair-edit" onclick="editExpenseItem('${safeCat}')">✎</button>
         </div>
-      `).join('')}
-    </div>
-    ${tags.length < 8 ? `
-      <button class="cmp-add-btn" style="width:100%;margin:8px 0;" onclick="addTag()">＋ 新增标签 (${tags.length}/8)</button>
-    ` : '<div style="font-size:12px;color:var(--label-3);text-align:center;padding:8px 0;">已达上限 8 个</div>'}
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveTags()">保存</button>
-    </div>
-  `);
+        <div style="background:#F2F2F7;height:3px;border-radius:2px;overflow:hidden;margin:2px 0;">
+          <div style="background:${barColor};width:${pct}%;height:100%;border-radius:2px;"></div>
+        </div>
+        ${notesHtml}
+      </div>
+    `;
+  }).join('');
 }
 
-function addTag(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  
-  if(DB.tags.length >= 8){ toast('最多8个标签'); return; }
-  DB.tags.push('新标签');
-  renderTagsSheet();
-}
-
-function delTag(idx){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!DB.tags) return;
-  DB.tags.splice(idx,1);
-  renderTagsSheet();
-}
-
-function saveTags(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  
-  DB.tags = DB.tags.map((t,idx)=>{
-    const el = document.getElementById('tag_'+idx);
-    return el ? el.value.trim() || '未命名' : t;
-  }).filter(t=>t);
-  saveDB();
-  closeSheet();
-  renderMoney(document.getElementById('content'));
-  toast('标签已更新');
-}
-
-// ===== 计划消费 CRUD =====
-function editPlannedBudget(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  openSheet(`
-    <div class="sheet-title">设置计划消费预估</div>
-    <div class="sheet-field">
-      <div class="sheet-label">本月预估消费总额（元）</div>
-      <input class="sheet-input" id="plannedBudgetInput" type="number" value="${m.plannedBudget||0}" placeholder="0">
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="savePlannedBudget()">保存</button>
-    </div>
-  `);
-}
-
-function savePlannedBudget(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  m.plannedBudget = parseFloat(document.getElementById('plannedBudgetInput').value)||0;
-  saveDB();
-  closeSheet();
-  renderMoney(document.getElementById('content'));
-  emitSaved();
-  toast('预估已设置');
-}
-
-function openAddPlannedItem(){
+// 添加消费明细(简化:默认支出,不需要选正负)
+function openAddExpenseItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m){ toast('请先切换到有效月份'); return; }
-  
+  const cats = ['衣服服饰','饮食吃喝','购物买买买','交通出行','娱乐休闲','医疗健康','宠物','给自己的奖励','其他'];
+  // 合并已有分类
+  const existingCats = [...new Set([...Object.keys(m.plan||{}), ...(m.expenses||[]).map(e=>e.cat)])];
+  const allCats = [...new Set([...cats, ...existingCats])];
   openSheet(`
-    <div class="sheet-title">添加计划消费</div>
+    <div class="sheet-title">添加消费明细</div>
     <div class="sheet-field">
-      <div class="sheet-label">选择标签</div>
-      <div class="cat-select" id="plannedItemTag">
-        ${DB.tags.map((t,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectTag(this,\'planned\')">'+t+'</div>').join('')}
+      <div class="sheet-label">选择分类</div>
+      <div class="cat-select" id="expItemCat">
+        ${allCats.map((c,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectExpItemCat(this)">'+c+'</div>').join('')}
       </div>
     </div>
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
-      <input class="sheet-input" id="plannedItemAmount" type="number" placeholder="0">
+      <input class="sheet-input" id="expItemAmount" type="number" placeholder="0">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">备注</div>
+      <input class="sheet-input" id="expItemNote" placeholder="如:聚餐">
+    </div>
+    <div class="sheet-field">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;">
+        <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;">
+        <span>⚠️ 超前消费（分期/赊账）</span>
+      </label>
     </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="confirmAddPlannedItem()">添加</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="confirmAddExpenseItem()">添加</button>
     </div>
   `);
 }
 
-let selectedPlannedTag = '';
-function selectTag(el, type){
+let selectedExpItemCat = '衣服服饰';
+function selectExpItemCat(el){
   haptic();
-  const container = el.parentElement;
-  container.querySelectorAll('.cat-opt').forEach(o=>o.classList.remove('selected'));
+  document.querySelectorAll('#expItemCat .cat-opt').forEach(o=>o.classList.remove('selected'));
   el.classList.add('selected');
-  if(type === 'planned') selectedPlannedTag = el.textContent;
-  else selectedAdvanceTag = el.textContent;
+  selectedExpItemCat = el.textContent;
 }
 
-function confirmAddPlannedItem(){
-  const amount = parseFloat(document.getElementById('plannedItemAmount').value)||0;
+function confirmAddExpenseItem(){
+  const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
+  const note = document.getElementById('expItemNote').value.trim();
+  const isAdvance = document.getElementById('expItemAdvance').checked;
+  haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  if(!m.plannedItems) m.plannedItems = [];
-  const tag = selectedPlannedTag || (DB.tags&&DB.tags[0]) || '其他';
-  m.plannedItems.push({id:'p'+Date.now(),tag,amount});
+  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance});
+  if(!m.plan) m.plan = {};
+  if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
   emitSaved();
-  toast('已添加消费');
+  toast('已添加消费明细');
 }
 
-function editPlannedList(){
+// 添加报销回流
+function openAddReimbursement(){
   haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  const items = m.plannedItems||[];
-  const total = items.reduce((s,e)=>s+(e.amount||0),0);
-  
   openSheet(`
-    <div class="sheet-title">编辑计划消费</div>
-    <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;display:flex;justify-content:space-between;">
-      <span>共 ${items.length} 笔</span>
-      <span>合计 ¥${fmtMoney(total)}</span>
-    </div>
-    <div id="plannedList">
-      ${items.map((e,idx)=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#E3F2FD;border-radius:8px;padding:10px;border-left:3px solid #1976D2;">
-          <div style="flex:1;">
-            <select class="sheet-input" id="plannedTag_${idx}" style="margin-bottom:6px;">
-              ${DB.tags.map(t=>'<option value="'+t+'"'+(t===e.tag?' selected':'')+'>'+t+'</option>').join('')}
-            </select>
-            <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:14px;color:var(--label);">¥</span>
-              <input class="sheet-input" id="plannedAmt_${idx}" type="number" value="${e.amount||0}" placeholder="0" style="flex:1;height:30px;font-size:14px;padding:0 8px;">
-            </div>
-          </div>
-          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delPlannedItem('${e.id}')">🗑</button>
-        </div>
-      `).join('') || '<div style="color:var(--label-3);font-size:13px;padding:12px 0;">暂无消费记录</div>'}
-    </div>
-    <div class="sheet-actions" style="margin-top:10px;">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="savePlannedList()">保存</button>
-    </div>
-  `);
-}
-
-function savePlannedList(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  (m.plannedItems||[]).forEach((e,idx)=>{
-    const tagEl = document.getElementById('plannedTag_'+idx);
-    const amtEl = document.getElementById('plannedAmt_'+idx);
-    if(tagEl) e.tag = tagEl.value;
-    if(amtEl) e.amount = parseFloat(amtEl.value)||0;
-  });
-  saveDB();
-  closeSheet();
-  renderMoney(document.getElementById('content'));
-  emitSaved();
-  toast('已更新');
-}
-
-function delPlannedItem(id){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  m.plannedItems = (m.plannedItems||[]).filter(e=>e.id!==id);
-  saveDB();
-  if((m.plannedItems||[]).length === 0){
-    closeSheet();
-    renderMoney(document.getElementById('content'));
-  } else {
-    editPlannedList();
-  }
-  toast('已删除');
-}
-
-// ===== 超前消费 CRUD =====
-let selectedAdvanceTag = '';
-function openAddAdvanceItem(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m){ toast('请先切换到有效月份'); return; }
-  
-  openSheet(`
-    <div class="sheet-title">添加超前消费</div>
-    <div style="background:#FFF3E0;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#E65100;line-height:1.6;">
-      💡 超前消费指以前已花出去、本月要还的钱（如花呗分期、信用卡账单）。
+    <div class="sheet-title">添加报销回流</div>
+    <div class="sheet-field">
+      <div class="sheet-label">金额（自动加回工资）</div>
+      <input class="sheet-input" id="reimbAmount" type="number" placeholder="0">
     </div>
     <div class="sheet-field">
-      <div class="sheet-label">选择标签</div>
-      <div class="cat-select" id="advanceItemTag">
-        ${DB.tags.map((t,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectTag(this,\'advance\')">'+t+'</div>').join('')}
-      </div>
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">金额</div>
-      <input class="sheet-input" id="advanceItemAmount" type="number" placeholder="0">
+      <div class="sheet-label">备注</div>
+      <input class="sheet-input" id="reimbNote" placeholder="如:公司垫付报销">
     </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="confirmAddAdvanceItem()">添加</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="confirmAddReimbursement()">添加</button>
     </div>
   `);
 }
 
-function confirmAddAdvanceItem(){
-  const amount = parseFloat(document.getElementById('advanceItemAmount').value)||0;
+function confirmAddReimbursement(){
+  const amount = parseFloat(document.getElementById('reimbAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
+  const note = document.getElementById('reimbNote').value.trim();
+  haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  if(!m.advanceItems) m.advanceItems = [];
-  const tag = selectedAdvanceTag || (DB.tags&&DB.tags[0]) || '其他';
-  m.advanceItems.push({id:'a'+Date.now(),tag,amount});
+  if(!m.reimbursements) m.reimbursements = [];
+  m.reimbursements.push({id:'r'+Date.now(),amount,note});
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
-  emitSaved();
-  toast('已添加超前消费');
+  toast('已添加报销回流');
 }
 
-function editAdvanceItemList(){
+// 编辑单个消费分类(修改实际支出 + 备注 + 超前消费标记)
+function editExpenseItem(cat){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const items = m.advanceItems||[];
-  const total = items.reduce((s,e)=>s+(e.amount||0),0);
-  
+  const allCats = [...new Set([...Object.keys(m.plan||{}), ...(m.expenses||[]).map(e=>e.cat)])];
+  const realCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
+  const items = (m.expenses||[]).filter(e=>e.cat===realCat);
+  const total = items.reduce((s,e)=>s+e.amount,0);
   openSheet(`
-    <div class="sheet-title">⚠️ 编辑超前消费</div>
-    <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;display:flex;justify-content:space-between;">
-      <span>共 ${items.length} 笔</span>
-      <span>合计 ¥${fmtMoney(total)}</span>
+    <div class="sheet-title">编辑: ${realCat}</div>
+    <div class="sheet-field">
+      <div class="sheet-label">预算(预估值)</div>
+      <input class="sheet-input" id="editPlanCat" type="number" value="${(m.plan||{})[realCat]||(m.plan||{})[cat]||0}" placeholder="0">
     </div>
-    <div id="advanceList">
+    <div style="padding:12px 0;border-bottom:.5px solid var(--separator);">
+      <div style="font-size:14px;color:var(--label-3);margin-bottom:8px;">当前实际: ¥${fmtMoney(total)} (${items.length}笔)</div>
       ${items.map((e,idx)=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#FFF8E1;border-radius:8px;padding:10px;border-left:3px solid #FF9500;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${e.isAdvance?'background:#FFF3E0;border-radius:8px;padding:8px;margin:4px 0;':''}">
           <div style="flex:1;">
-            <select class="sheet-input" id="advanceTag_${idx}" style="margin-bottom:6px;">
-              ${DB.tags.map(t=>'<option value="'+t+'"'+(t===e.tag?' selected':'')+'>'+t+'</option>').join('')}
-            </select>
-            <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:14px;color:var(--label);">¥</span>
-              <input class="sheet-input" id="advanceAmt_${idx}" type="number" value="${e.amount||0}" placeholder="0" style="flex:1;height:30px;font-size:14px;padding:0 8px;">
-            </div>
+            <span>¥${fmtMoney(e.amount)}</span>
+            <input class="sheet-input" id="expNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注(可选)" style="width:120px;height:28px;font-size:13px;margin-left:8px;padding:0 8px;display:inline-block;">
+            <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;">
+              <input type="checkbox" id="expAdvance_${idx}" ${e.isAdvance?'checked':''} style="width:16px;height:16px;">
+              超前消费
+            </label>
           </div>
-          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delAdvanceItem('${e.id}')">🗑</button>
+          <button class="cmp-pair-edit" onclick="delExpenseEntry('${e.id}')">🗑</button>
         </div>
-      `).join('') || '<div style="color:var(--label-3);font-size:13px;padding:12px 0;">暂无超前消费</div>'}
+      `).join('') || '<div style="color:var(--label-3);font-size:14px;">暂无记录</div>'}
     </div>
-    <div class="sheet-actions" style="margin-top:10px;">
+    <div class="sheet-actions" style="margin-top:14px;">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveAdvanceItemList()">保存</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveExpenseItem('${realCat}')">保存</button>
+    </div>
+    <div style="margin-top:12px;text-align:center;">
+      <button class="edit-btn" style="color:var(--red);font-size:13px;" onclick="delPlanCatFromExpense('${cat}')">删除此分类</button>
     </div>
   `);
 }
 
-function saveAdvanceItemList(){
+function delPlanCatFromExpense(cat){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.plan) return;
+  const realCat = Object.keys(m.plan).find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
+  delete m.plan[realCat];
+  if(m.expenses){
+    m.expenses = m.expenses.filter(e=>e.cat!==realCat);
+  }
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  toast('已删除分类「'+realCat+'」');
+}
+
+function saveExpenseItem(cat){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  (m.advanceItems||[]).forEach((e,idx)=>{
-    const tagEl = document.getElementById('advanceTag_'+idx);
-    const amtEl = document.getElementById('advanceAmt_'+idx);
-    if(tagEl) e.tag = tagEl.value;
-    if(amtEl) e.amount = parseFloat(amtEl.value)||0;
+  if(!m.plan) m.plan = {};
+  const v = parseFloat(document.getElementById('editPlanCat').value)||0;
+  if(v>0) m.plan[cat] = v;
+  const items = (m.expenses||[]).filter(e=>e.cat===cat);
+  items.forEach((e,idx)=>{
+    const noteEl = document.getElementById('expNote_'+idx);
+    if(noteEl) e.note = noteEl.value.trim();
+    const advEl = document.getElementById('expAdvance_'+idx);
+    if(advEl) e.isAdvance = advEl.checked;
   });
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
-  emitSaved();
   toast('已更新');
 }
 
-function delAdvanceItem(id){
+function delExpenseEntry(id){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  m.advanceItems = (m.advanceItems||[]).filter(e=>e.id!==id);
+  m.expenses = m.expenses.filter(e=>e.id!==id);
   saveDB();
-  if((m.advanceItems||[]).length === 0){
-    closeSheet();
-    renderMoney(document.getElementById('content'));
-  } else {
-    editAdvanceItemList();
-  }
+  const cat = document.querySelector('.sheet-title').textContent.replace('编辑: ','').trim();
+  editExpenseItem(cat);
   toast('已删除');
 }
 
-// ===== 主线任务报酬编辑 =====
+function changeMonth(delta){
+  haptic();
+  const [y,m] = state.currentMonth.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  // 起始月份2026-07，不能往前翻到更早
+  if(key < '2026-07') { toast('2026年7月是起始月'); return; }
+  if(!DB.finance[key]){
+    DB.finance[key] = { incomePlanned:0, incomeActual:0, hardExpenses:[], catMeta:{}, goldOverride:null, expenses:[], reimbursements:[], plan:{} };
+  }
+  state.currentMonth = key;
+  saveDB();
+  renderMoney(document.getElementById('content'));
+}
+
 function editIncome(){
   haptic();
   const m = DB.finance[state.currentMonth];
@@ -2522,22 +2734,7 @@ function saveIncome(){
   toast('报酬已更新');
 }
 
-// ===== 月份切换 =====
-function changeMonth(delta){
-  haptic();
-  const [y,m] = state.currentMonth.split('-').map(Number);
-  const d = new Date(y, m-1+delta, 1);
-  const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-  if(key < '2026-07') { toast('2026年7月是起始月'); return; }
-  if(!DB.finance[key]){
-    DB.finance[key] = { incomePlanned:0, incomeActual:0, goldOverride:null, plannedBudget:0, plannedItems:[], advanceItems:[] };
-  }
-  state.currentMonth = key;
-  saveDB();
-  renderMoney(document.getElementById('content'));
-}
-
-// ===== 月结金币覆盖 =====
+// 月结金币手动覆盖
 function editGoldOverride(){
   haptic();
   const fin = calcMonthFinance(state.currentMonth);
@@ -2579,6 +2776,165 @@ function resetGoldOverride(){
   renderMoney(document.getElementById('content'));
   toast('已恢复自动计算');
 }
+
+// 硬性支出管理（列表式）
+function editHardExpense(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m){ toast('请先切换到有效月份'); return; }
+  if(!m.hardExpenses) m.hardExpenses = [];
+  renderHardExpenseSheet();
+}
+
+function renderHardExpenseSheet(){
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  openSheet(`
+    <div class="sheet-title">硬性支出 · ${state.currentMonth}</div>
+    <div id="hardExpList">
+      ${m.hardExpenses.map((h,idx)=>`
+        <div class="sheet-field" style="display:flex;align-items:center;gap:8px;background:#F9F9FB;border-radius:8px;padding:10px;margin-bottom:6px;">
+          <div style="flex:1;">
+            <input class="sheet-input" id="hardName_${idx}" value="${h.name}" placeholder="名称" style="margin-bottom:4px;">
+            <div style="display:flex;gap:4px;">
+              <input class="sheet-input" id="hardAmount_${idx}" type="number" value="${h.amount}" placeholder="金额" style="flex:1;">
+              <input class="sheet-input" id="hardNote_${idx}" value="${h.note||''}" placeholder="备注" style="flex:1;">
+            </div>
+          </div>
+          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delHardExpense('${h.id}')">🗑</button>
+        </div>
+      `).join('') || '<div style="color:var(--label-3);font-size:14px;text-align:center;padding:20px;">暂无硬性支出</div>'}
+    </div>
+    <button class="cmp-add-btn" style="width:100%;margin-bottom:12px;" onclick="addHardExpense()">+ 添加硬性支出</button>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveHardExpenses()">保存</button>
+    </div>
+  `);
+}
+
+function addHardExpense(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  if(!m.hardExpenses) m.hardExpenses = [];
+  m.hardExpenses.push({id:'h'+Date.now(),name:'',amount:0,note:''});
+  renderHardExpenseSheet();
+}
+
+function delHardExpense(id){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  m.hardExpenses = m.hardExpenses.filter(h=>h.id!==id);
+  renderHardExpenseSheet();
+  toast('已删除');
+}
+
+function saveHardExpenses(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  m.hardExpenses.forEach((h,idx)=>{
+    const nameEl = document.getElementById('hardName_'+idx);
+    const amtEl = document.getElementById('hardAmount_'+idx);
+    const noteEl = document.getElementById('hardNote_'+idx);
+    if(nameEl) h.name = nameEl.value.trim() || '未命名';
+    if(amtEl) h.amount = parseFloat(amtEl.value)||0;
+    if(noteEl) h.note = noteEl.value.trim();
+  });
+  // 过滤掉金额为0的空记录
+  m.hardExpenses = m.hardExpenses.filter(h=>h.amount > 0);
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  toast('硬性支出已更新');
+}
+
+// 编辑分类计划值(用于预算管理)
+function editPlan(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m){ return; }
+  if(!m.plan) m.plan = {};
+  const cats = Object.keys(m.plan);
+  renderPlanSheet(cats);
+}
+
+function renderPlanSheet(cats){
+  const m = DB.finance[state.currentMonth];
+  openSheet(`
+    <div class="sheet-title">编辑消费分类</div>
+    <div id="planCats">
+      ${cats.map(c=>{
+        const safeName = c.replace(/'/g,'').replace(/"/g,'');
+        return `
+        <div class="sheet-field" style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;">
+            <div class="sheet-label">${c}</div>
+            <input class="sheet-input" id="plan_${safeName}" type="number" value="${m.plan[c]||0}" placeholder="0">
+          </div>
+          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);flex-shrink:0;width:36px;height:36px;font-size:16px;" onclick="delPlanCat('${safeName}')">🗑</button>
+        </div>
+      `}).join('')}
+    </div>
+    <div class="sheet-field" style="display:flex;gap:8px;align-items:flex-end;">
+      <div style="flex:1;">
+        <div class="sheet-label">新增分类名称</div>
+        <input class="sheet-input" id="newPlanCat" placeholder="如:交通出行">
+      </div>
+      <button class="cmp-add-btn" onclick="addPlanCat()">＋</button>
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="savePlan()">保存</button>
+    </div>
+  `);
+}
+
+function savePlan(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.plan) return;
+  Object.keys(m.plan).forEach(c=>{
+    const safeName = c.replace(/'/g,'').replace(/"/g,'');
+    const el = document.getElementById('plan_'+safeName);
+    if(el) m.plan[c] = parseFloat(el.value)||0;
+  });
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  toast('预算已更新');
+}
+
+function addPlanCat(){
+  const name = document.getElementById('newPlanCat').value.trim();
+  if(!name){ toast('请输入分类名称'); return; }
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(m.plan[name]!==undefined){ toast('该分类已存在'); return; }
+  m.plan[name] = 0;
+  saveDB();
+  renderPlanSheet(Object.keys(m.plan));
+  toast('已添加分类');
+}
+
+function delPlanCat(name){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.plan) return;
+  const realName = Object.keys(m.plan).find(k=>k.replace(/'/g,'').replace(/"/g,'')===name) || name;
+  if(m.plan[realName]===undefined){ toast('找不到该分类'); return; }
+  delete m.plan[realName];
+  if(m.expenses){
+    m.expenses = m.expenses.filter(e=>e.cat!==realName);
+  }
+  saveDB();
+  renderPlanSheet(Object.keys(m.plan));
+  toast('已删除分类「'+realName+'」');
+}
+
+
 
 // ===== 学习板块 =====
 function renderStudy(c){
@@ -2863,15 +3219,11 @@ function checkBigGoalToday(id){
 function renderMonthSummary(){
   const now = new Date();
   const ym = now.toISOString().slice(0,7); // 2026-07
-  // 本月新增灵感数
-  const monthInspires = (DB.study.inspires||[]).filter(i=>{
-    const d = i.date || '';
-    // date 格式 "07-25" 或 "7月25日"
-    const m = String(now.getMonth()+1).padStart(2,'0');
-    return d.startsWith(m+'-') || d.startsWith(now.getMonth()+1+'月') || d.startsWith(m);
+  // 本月新增灵感数（从书架所有书的 inspirations 中统计）
+  const monthInspires = getAllInspirations().filter(i=>{
+    return (i.date||'').startsWith(ym);
   }).length;
-  // 也兼容旧数据（无日期过滤），用 inspires 总数
-  const totalInspires = (DB.study.inspires||[]).length;
+  const totalInspires = getAllInspirations().length;
 
   // 本月学习时长（分钟）从 studySessions 统计
   let monthMinutes = 0;
@@ -3161,7 +3513,7 @@ function renderBookInspSheet(id){
       ${insps.slice().reverse().map((i,idx)=>`
         <div style="padding:10px 0;border-bottom:.5px solid var(--separator);position:relative;">
           <div style="font-size:14px;color:var(--label-1);padding-right:28px;">${i.text}</div>
-          <div style="font-size:11px;color:var(--label-3);margin-top:4px;">${i.date}</div>
+          <div style="font-size:11px;color:var(--label-3);margin-top:4px;">${fmtInspDate(i.date)}</div>
           <button class="cmp-pair-edit" style="position:absolute;top:10px;right:0;width:24px;height:24px;font-size:12px;background:#FFEBEE;color:var(--red);" onclick="delBookInspiration('${id}',${insps.length-1-idx})">🗑</button>
         </div>
       `).join('') || '<div style="text-align:center;padding:16px;color:var(--label-3);font-size:14px;">还没有灵感，添加第一条吧</div>'}
@@ -3179,9 +3531,10 @@ function addBookInspiration(id){
   const b = (DB.study.bookshelf||[]).find(x=>x.id===id);
   if(!b) return;
   if(!b.inspirations) b.inspirations = [];
-  b.inspirations.push({text, date: fmtDate().slice(0,5)});
+  b.inspirations.push({text, date: todayStr()});
   saveDB();
   renderBookInspSheet(id);
+  if(state.currentModule==='study') renderStudy(document.getElementById('content'));
   toast('灵感已记录');
 }
 
@@ -3192,7 +3545,61 @@ function delBookInspiration(id, idx){
   b.inspirations.splice(idx, 1);
   saveDB();
   renderBookInspSheet(id);
+  if(state.currentModule==='study') renderStudy(document.getElementById('content'));
   toast('已删除');
+}
+
+// ===== 灵感时间线（跨书汇总）=====
+function getAllInspirations(){
+  const all = [];
+  (DB.study.bookshelf||[]).forEach(b=>{
+    (b.inspirations||[]).forEach(i=>{
+      all.push({text:i.text, date:i.date, bookId:b.id, bookTitle:b.title, bookColor:b.color||'#5AC8FA'});
+    });
+  });
+  // 按日期倒序（YYYY-MM-DD 可直接字符串比较，非标准格式排到最后）
+  all.sort((a,b)=>{
+    if(/^\d{4}-\d{2}-\d{2}$/.test(a.date||'') && /^\d{4}-\d{2}-\d{2}$/.test(b.date||'')){
+      return (b.date||'').localeCompare(a.date||'');
+    }
+    return 0;
+  });
+  return all;
+}
+
+function getInspirationBookCount(){
+  const books = new Set();
+  (DB.study.bookshelf||[]).forEach(b=>{
+    if((b.inspirations||[]).length>0) books.add(b.id);
+  });
+  return books.size;
+}
+
+function openInspirationTimeline(){
+  haptic();
+  const all = getAllInspirations();
+  openSheet(`
+    <div class="sheet-title">💡 灵感随笔 · 时间线</div>
+    <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;">共 ${all.length} 条 · 涉及 ${getInspirationBookCount()} 本书</div>
+    <div style="max-height:400px;overflow-y:auto;">
+      ${all.length===0 ? '<div style="text-align:center;padding:24px;color:var(--label-3);font-size:14px;">还没有灵感<br>去书架里为某本书添加第一条吧</div>' :
+        all.map(i=>`
+          <div style="padding:10px 0;border-bottom:.5px solid var(--separator);">
+            <div style="font-size:11px;color:var(--label-3);margin-bottom:4px;">${fmtInspDate(i.date)}</div>
+            <div style="font-size:14px;color:var(--label-1);line-height:1.5;">${i.text}</div>
+            <div style="margin-top:6px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--blue);background:var(--bg);padding:3px 8px;border-radius:6px;cursor:pointer;" onclick="closeSheet();setTimeout(()=>{switchModule('study');setTimeout(()=>openBookInspirations('${i.bookId}'),200)},100)">
+                📖 ${i.bookTitle}
+              </span>
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">关闭</button>
+    </div>
+  `);
 }
 
 function getWeekDates(){
