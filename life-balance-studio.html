@@ -812,6 +812,9 @@ input,textarea{font-family:inherit;}
       <a class="nav-item active" data-module="home">
         <span class="nav-icon">🏠</span><span>今日战况</span>
       </a>
+      <a class="nav-item" data-module="finance">
+        <span class="nav-icon">📊</span><span>经济战报</span>
+      </a>
       <a class="nav-item" data-module="money">
         <span class="nav-icon">💰</span><span>FUCK YOU MONEY</span>
       </a>
@@ -823,9 +826,6 @@ input,textarea{font-family:inherit;}
       </a>
       <a class="nav-item" data-module="health">
         <span class="nav-icon">🏥</span><span>角色面板</span>
-      </a>
-      <a class="nav-item" data-module="social">
-        <span class="nav-icon">🤝</span><span>朋友圈</span>
       </a>
       <a class="nav-item" data-module="decision">
         <span class="nav-icon">🧘</span><span>事缓则圆</span>
@@ -1000,13 +1000,56 @@ function importData(input){
   reader.onload = function(e){
     try {
       const imported = JSON.parse(e.target.result);
-      if(!imported.settings || !imported.study){
+      // 兼容旧格式：没有 settings 字段但有 savingsPlan 的旧备份
+      if(!imported.study && !imported.savingsPlan && !imported.finance){
         toast('文件格式不正确');
         return;
       }
       if(!confirm('导入将覆盖当前所有数据，确定继续？')) return;
+      
+      // 旧格式迁移：plannedItems/advanceItems → expenses + plan
+      if(imported.finance){
+        Object.keys(imported.finance).forEach(mk=>{
+          const m = imported.finance[mk];
+          if(m.plannedItems || m.advanceItems){
+            // 旧格式，需要迁移
+            if(!m.expenses) m.expenses = [];
+            if(!m.plan) m.plan = {};
+            // plannedItems → 预算 plan
+            (m.plannedItems||[]).forEach(p=>{
+              if(m.plan[p.tag]===undefined) m.plan[p.tag] = 0;
+              m.plan[p.tag] += p.amount;
+              m.expenses.push({id:p.id||'e'+Date.now()+Math.random(),cat:p.tag,amount:p.amount,note:'',isAdvance:false});
+            });
+            // advanceItems → 超前消费 expenses
+            (m.advanceItems||[]).forEach(a=>{
+              m.expenses.push({id:a.id||'e'+Date.now()+Math.random(),cat:a.tag,amount:a.amount,note:'',isAdvance:true});
+            });
+            delete m.plannedItems;
+            delete m.advanceItems;
+            delete m.plannedBudget;
+          }
+          if(!m.hardExpenses) m.hardExpenses = [];
+          if(!m.reimbursements) m.reimbursements = [];
+          if(!m.catMeta) m.catMeta = {};
+          if(m.goldOverride === undefined) m.goldOverride = null;
+          DB.finance[mk] = m;
+        });
+      }
+      
+      // 旧格式迁移：settings → savingsPlan
+      if(imported.settings && !imported.savingsPlan){
+        imported.savingsPlan = imported.settings;
+      }
+      
+      // 旧格式迁移：tags → 各月 catMeta（保留全局 tags 做参考）
+      if(imported.tags && !imported.catMeta){
+        // tags 是全局分类列表，不需要特殊迁移，分类已在 expenses 里
+      }
+      
       // 逐字段合并
       Object.keys(imported).forEach(key=>{
+        if(key === 'finance') return; // 已在上面处理
         if(key === 'study'){
           if(imported.study.bigGoals) DB.study.bigGoals = imported.study.bigGoals;
           if(imported.study.rewards) DB.study.rewards = imported.study.rewards;
@@ -1017,8 +1060,10 @@ function importData(input){
           if(imported.study.bookshelf) DB.study.bookshelf = imported.study.bookshelf;
           if(imported.study.studySessions) DB.study.studySessions = imported.study.studySessions;
           if(imported.study.monthlyGoal) DB.study.monthlyGoal = imported.study.monthlyGoal;
-        } else if(key === 'finance'){
-          Object.keys(imported.finance||{}).forEach(mk=>{ DB.finance[mk] = imported.finance[mk]; });
+          if(imported.study.timerActive !== undefined) DB.study.timerActive = imported.study.timerActive;
+          if(imported.study.timerStart !== undefined) DB.study.timerStart = imported.study.timerStart;
+        } else if(key === 'plannedItems' || key === 'advanceItems' || key === 'tags') {
+          // 旧字段跳过
         } else {
           DB[key] = imported[key];
         }
@@ -1026,7 +1071,7 @@ function importData(input){
       saveDB();
       closeSheet();
       switchModule('home');
-      toast('数据导入成功！');
+      toast('情报录入成功！');
     } catch(err){
       toast('导入失败：' + err.message);
     }
@@ -1348,7 +1393,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
 function switchModule(m){
   state.currentModule = m;
   document.querySelectorAll('.nav-item').forEach(i=>i.classList.toggle('active', i.dataset.module===m));
-  const titles = {home:'今日战况',money:'FUCK YOU MONEY',study:'逆转王者',family:'王朝建立',health:'角色面板',social:'朋友圈',decision:'事缓则圆'};
+  const titles = {home:'今日战况',finance:'经济战报',money:'FUCK YOU MONEY',study:'逆转王者',family:'王朝建立',health:'角色面板',decision:'事缓则圆'};
   document.getElementById('topbarTitle').textContent = titles[m];
   document.getElementById('fabBar').classList.toggle('hidden', m!=='home');
   const content = document.getElementById('content');
@@ -1356,7 +1401,7 @@ function switchModule(m){
   content.classList.remove('fade-in');
   void content.offsetWidth;
   content.classList.add('fade-in');
-  const renderer = {home:renderHome, money:renderMoney, study:renderStudy, family:renderFamily, health:renderHealth, social:renderSocial, decision:renderDecision}[m];
+  const renderer = {home:renderHome, finance:renderFinanceModule, money:renderMoney, study:renderStudy, family:renderFamily, health:renderHealth, decision:renderDecision}[m];
   renderer && renderer(content);
   content.scrollTop=0;
 }
@@ -1444,7 +1489,7 @@ function renderHome(c){
         <span class="diff-value"><span class="currency">¥</span>${fmtMoney(Math.max(0,diff))}</span>
         <span class="diff-tail">达成自由</span>
       </div>
-      <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,.12);border-radius:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="switchModule('money');setTimeout(()=>scrollToFinanceReport(),100)">
+      <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,.12);border-radius:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="switchModule('finance')">
         <div style="flex:1;min-width:0;">
           <div style="font-size:11px;color:rgba(255,255,255,.6);">📊 金币快报 · ${state.archiveYear}赛季</div>
           <div style="font-size:12px;color:rgba(255,255,255,.9);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${renderFinanceBrief(state.archiveYear)}</div>
@@ -1469,7 +1514,73 @@ function renderHome(c){
         <div style="font-size:20px;">${getAllInspirations().length>0?'📝':'✏️'}</div>
       </div>
     </div>
+
+    <!-- 存钱计划编辑 -->
+    <div class="card" style="padding:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:15px;font-weight:600;">🏦 存钱计划</div>
+        <button class="edit-btn" onclick="editSavingsPlanHome()">编辑</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;text-align:center;background:var(--bg);border-radius:8px;padding:8px 4px;">
+          <div style="font-size:11px;color:var(--label-3);">目标金额</div>
+          <div style="font-size:15px;font-weight:600;color:var(--green);">¥${fmtMoney(DB.savingsPlan.target||0)}</div>
+        </div>
+        <div style="flex:1;text-align:center;background:var(--bg);border-radius:8px;padding:8px 4px;">
+          <div style="font-size:11px;color:var(--label-3);">起始日期</div>
+          <div style="font-size:14px;font-weight:600;">${DB.savingsPlan.startDate||'未设置'}</div>
+        </div>
+        <div style="flex:1;text-align:center;background:var(--bg);border-radius:8px;padding:8px 4px;">
+          <div style="font-size:11px;color:var(--label-3);">截止日期</div>
+          <div style="font-size:14px;font-weight:600;">${DB.savingsPlan.endDate||'未设置'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 数据管理 -->
+    <div class="card" style="padding:12px;margin-bottom:8px;">
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px;">💾 情报管理</div>
+      <div style="display:flex;gap:8px;">
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;" onclick="exportData()">📤 情报转服</button>
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;" onclick="document.getElementById('importFileInput').click()">📥 情报录入</button>
+      </div>
+      <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
+    </div>
   `;
+}
+
+function editSavingsPlanHome(){
+  haptic();
+  openSheet(`
+    <div class="sheet-title">🏦 编辑存钱计划</div>
+    <div class="sheet-field">
+      <div class="sheet-label">目标金额 (¥)</div>
+      <input class="sheet-input" id="spTarget" type="number" value="${DB.savingsPlan.target||0}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">起始日期</div>
+      <input class="sheet-input" id="spStart" type="date" value="${DB.savingsPlan.startDate||''}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">截止日期</div>
+      <input class="sheet-input" id="spEnd" type="date" value="${DB.savingsPlan.endDate||''}">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveSavingsPlanHome()">保存</button>
+    </div>
+  `);
+}
+
+function saveSavingsPlanHome(){
+  haptic();
+  DB.savingsPlan.target = parseFloat(document.getElementById('spTarget').value)||0;
+  DB.savingsPlan.startDate = document.getElementById('spStart').value;
+  DB.savingsPlan.endDate = document.getElementById('spEnd').value;
+  saveDB();
+  closeSheet();
+  renderHome(document.getElementById('content'));
+  toast('存钱计划已更新');
 }
 
 // ===== 年度存档分析 =====
@@ -1919,6 +2030,15 @@ function autoGeneratePlan(year){
   toast('已基于' + year + '年数据生成' + (year+1) + '年计划');
 }
 
+// ===== 经济战报（独立板块） =====
+function renderFinanceModule(c){
+  c.innerHTML = `
+    <div class="section-title">经济战报</div>
+    ${renderFinanceReport(state.archiveYear)}
+    <div style="height:20px;"></div>
+  `;
+}
+
 // ===== 财务板块 =====
 function renderMoney(c){
   const fin = calcMonthFinance(state.currentMonth);
@@ -2053,10 +2173,6 @@ function renderMoney(c){
 
     <!-- 封印宝箱 -->
     ${renderTreasureChest()}
-
-    <!-- 经济战报 -->
-    <div id="financeReportAnchor"></div>
-    ${renderFinanceReport(state.archiveYear)}
 
     <div style="height:20px;"></div>
   `;
@@ -2248,7 +2364,7 @@ function renderFinanceReport(year){
             <div style="font-size:15px;font-weight:700;color:var(--red);">${fin.topCat} · ¥${fmtMoney(fin.topCatAmount)}</div>
           </div>
         </div>
-        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">消耗结构饼图</div>
+        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">累计消耗排行</div>
         ${fin.catList.map(([cat,amount])=>{
           const pct = fin.totalCatSpend > 0 ? Math.round(amount/fin.totalCatSpend*100) : 0;
           return `
@@ -2509,16 +2625,20 @@ function openAddExpenseItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m){ toast('请先切换到有效月份'); return; }
-  const cats = ['衣服服饰','饮食吃喝','购物买买买','交通出行','娱乐休闲','医疗健康','宠物','给自己的奖励','其他'];
+  const defaultCats = ['衣服服饰','饮食吃喝','购物买买买','交通出行','娱乐休闲','医疗健康','宠物','给自己的奖励','其他'];
   // 合并已有分类
   const existingCats = [...new Set([...Object.keys(m.plan||{}), ...(m.expenses||[]).map(e=>e.cat)])];
-  const allCats = [...new Set([...cats, ...existingCats])];
+  const allCats = [...new Set([...defaultCats, ...existingCats])];
   openSheet(`
     <div class="sheet-title">添加消费明细</div>
     <div class="sheet-field">
       <div class="sheet-label">选择分类</div>
       <div class="cat-select" id="expItemCat">
         ${allCats.map((c,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectExpItemCat(this)">'+c+'</div>').join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:13px;" onclick="addExpCat()">＋ 新增分类</button>
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:13px;color:var(--red);" onclick="delExpCat()">🗑 删除当前分类</button>
       </div>
     </div>
     <div class="sheet-field">
@@ -2548,6 +2668,36 @@ function selectExpItemCat(el){
   document.querySelectorAll('#expItemCat .cat-opt').forEach(o=>o.classList.remove('selected'));
   el.classList.add('selected');
   selectedExpItemCat = el.textContent;
+}
+
+function addExpCat(){
+  const name = prompt('输入新分类名称：');
+  if(!name || !name.trim()) return;
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  if(!m.plan) m.plan = {};
+  if(m.plan[name.trim()]===undefined) m.plan[name.trim()] = 0;
+  saveDB();
+  selectedExpItemCat = name.trim();
+  openAddExpenseItem();
+  toast('已新增分类: '+name.trim());
+}
+
+function delExpCat(){
+  const cat = selectedExpItemCat;
+  if(!cat){ toast('请先选择分类'); return; }
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  if(!confirm('确定删除分类「'+cat+'」？\n该分类下的消费记录也会被删除。')) return;
+  haptic();
+  if(m.plan) delete m.plan[cat];
+  if(m.expenses) m.expenses = m.expenses.filter(e=>e.cat!==cat);
+  if(m.catMeta) delete m.catMeta[cat];
+  saveDB();
+  const remaining = [...new Set([...Object.keys(m.plan||{}), ...(m.expenses||[]).map(e=>e.cat)])];
+  selectedExpItemCat = remaining[0] || '其他';
+  openAddExpenseItem();
+  toast('已删除分类: '+cat);
 }
 
 function confirmAddExpenseItem(){
@@ -3881,8 +4031,17 @@ function renderAddTaskSheet(){
       <input class="sheet-input" id="newTaskText" placeholder="如:学习英语 45 分钟">
     </div>
     <div class="sheet-field">
-      <div class="sheet-label">日期选择（可多选，任务将创建到所选日期）</div>
-      <div id="multiDateList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">${dateChips||'<span style="color:var(--label-3);font-size:13px;">未选择</span>'}</div>
+      <div class="sheet-label">日期范围批量添加</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input class="sheet-input" id="batchDateStart" type="date" value="${state.currentStudyDate}" style="flex:1;height:36px;padding:0 8px;font-size:14px;">
+        <span style="font-size:13px;color:var(--label-3);">→</span>
+        <input class="sheet-input" id="batchDateEnd" type="date" value="${state.currentStudyDate}" style="flex:1;height:36px;padding:0 8px;font-size:14px;">
+      </div>
+      <button class="sheet-btn sheet-btn-secondary" style="width:100%;margin-top:6px;font-size:13px;" onclick="batchAddDates()">📅 一键填充日期范围</button>
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">已选日期（可多选，任务将创建到所选日期）</div>
+      <div id="multiDateList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;max-height:80px;overflow-y:auto;">${dateChips||'<span style="color:var(--label-3);font-size:13px;">未选择</span>'}</div>
       <div style="display:flex;gap:6px;">
         <input class="sheet-input" id="multiDateInput" type="date" value="${state.currentStudyDate}" style="flex:1;height:36px;padding:0 10px;font-size:14px;">
         <button class="cmp-add-btn" onclick="addMultiDate()">＋</button>
@@ -3906,6 +4065,26 @@ function renderAddTaskSheet(){
       <button class="sheet-btn sheet-btn-primary" onclick="confirmAddTask()">添加</button>
     </div>
   `);
+}
+
+function batchAddDates(){
+  const start = document.getElementById('batchDateStart').value;
+  const end = document.getElementById('batchDateEnd').value;
+  if(!start || !end){ toast('请选择起止日期'); return; }
+  const s = new Date(start), e = new Date(end);
+  if(s > e){ toast('起始日期不能晚于结束日期'); return; }
+  haptic();
+  state.multiTaskDates = new Set();
+  const cur = new Date(s);
+  while(cur <= e){
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth()+1).padStart(2,'0');
+    const d = String(cur.getDate()).padStart(2,'0');
+    state.multiTaskDates.add(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate()+1);
+  }
+  renderAddTaskSheet();
+  toast('已填充 '+state.multiTaskDates.size+' 天');
 }
 
 function addMultiDate(){
