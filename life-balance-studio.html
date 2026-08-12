@@ -1000,12 +1000,109 @@ const SUPABASE_URL = 'https://vdjphermisxenpsdxgm.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkanBoZXJtc2lzeGVucHNkeGdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1MTQzNzcsImV4cCI6MjEwMjA5MDM3N30.L2hNZ1_BAAMgqiLSEM3d7gqzULU0maiD95V5Q_xz0G0';
 
 function getDeviceId(){
-  let id = localStorage.getItem('lb_device_id');
+  // 优先使用用户设置的同步码
+  let id = localStorage.getItem('lb_sync_code') || localStorage.getItem('lb_device_id');
   if(!id){
     id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2,10);
     localStorage.setItem('lb_device_id', id);
   }
   return id;
+}
+
+function getSyncCode(){
+  return localStorage.getItem('lb_sync_code') || '';
+}
+
+function setSyncCode(code){
+  localStorage.setItem('lb_sync_code', code);
+  // 同步码变了，重置云端版本号，下次上传会用新 ID
+  localStorage.setItem('lb_cloud_version', '0');
+}
+
+function openSyncCodeSetting(){
+  haptic();
+  const current = getSyncCode();
+  openSheet(`
+    <div class="sheet-title">🔐 同步码设置</div>
+    <div style="font-size:13px;color:var(--label-3);line-height:1.6;margin-bottom:12px;">
+      同步码是你跨设备恢复数据的钥匙。<br>
+      设置后，云端数据会用这个同步码标记。<br>
+      换手机时输入相同的同步码即可拉取数据。
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">当前同步码</div>
+      <div style="font-size:16px;font-weight:600;color:${current?'var(--green)':'var(--label-3)'};">${current||'未设置（使用随机设备ID）'}</div>
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">设置新同步码</div>
+      <input class="sheet-input" id="syncCodeInput" placeholder="如: yukio2026" value="${current}">
+      <div style="font-size:12px;color:var(--label-3);margin-top:4px;">建议用英文字母+数字，好记的</div>
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveSyncCode()">保存</button>
+    </div>
+  `);
+}
+
+function saveSyncCode(){
+  const code = document.getElementById('syncCodeInput').value.trim();
+  if(!code){ toast('请输入同步码'); return; }
+  haptic();
+  setSyncCode(code);
+  closeSheet();
+  renderHome(document.getElementById('content'));
+  toast('同步码已设置: ' + code);
+  // 立即上传一次
+  setTimeout(()=> cloudSync(true), 500);
+}
+
+function openRestoreByCode(){
+  haptic();
+  openSheet(`
+    <div class="sheet-title">🔄 换设备恢复</div>
+    <div style="font-size:13px;color:var(--label-3);line-height:1.6;margin-bottom:12px;">
+      输入你之前设置的同步码，<br>从云端拉取数据到这台设备。
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">同步码</div>
+      <input class="sheet-input" id="restoreCodeInput" placeholder="如: yukio2026">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="restoreByCode()">恢复</button>
+    </div>
+  `);
+}
+
+async function restoreByCode(){
+  const code = document.getElementById('restoreCodeInput').value.trim();
+  if(!code){ toast('请输入同步码'); return; }
+  haptic();
+  toast('☁️ 正在拉取...');
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${code}&order=version.desc&limit=1`, {
+      method: 'GET',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    const result = await resp.json();
+    if(!result || result.length === 0){
+      toast('该同步码下无云端数据');
+      return;
+    }
+    const record = result[0];
+    const cloudData = typeof record.data === 'string' ? JSON.parse(record.data) : record.data;
+    if(!confirm(`找到云端数据 v${record.version}（${new Date(record.updated_at).toLocaleString('zh-CN')}）\n确定覆盖本地？`)) return;
+    Object.keys(cloudData).forEach(key=>{ DB[key] = cloudData[key]; });
+    saveDB();
+    setSyncCode(code);
+    setCloudVersion(record.version);
+    closeSheet();
+    switchModule('home');
+    toast('☁️ 恢复成功！');
+  } catch(e){
+    toast('恢复失败: ' + e.message);
+  }
 }
 
 function getCloudVersion(){
@@ -1659,6 +1756,10 @@ function renderHome(c){
       <div style="display:flex;gap:8px;">
         <button class="sheet-btn sheet-btn-secondary" style="flex:1;background:#E8F5E9;color:var(--green);" onclick="cloudSync(true)">☁️ 云端上传</button>
         <button class="sheet-btn sheet-btn-secondary" style="flex:1;background:#E3F2FD;color:var(--blue);" onclick="cloudPull()">☁️ 云端拉取</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:12px;" onclick="openSyncCodeSetting()">🔐 同步码: ${getSyncCode()||'未设置'}</button>
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:12px;background:#FFF3E0;color:var(--orange);" onclick="openRestoreByCode()">🔄 换设备恢复</button>
       </div>
       <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
     </div>
