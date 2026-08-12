@@ -891,7 +891,7 @@ const DB = {
     '2026-07':{
       incomePlanned: 0,
       incomeActual: 0,
-      hardExpenses:[],
+      hardExpenses:[], // 已废弃，自动迁移为普通消费
       catMeta:{},
       goldOverride:null,
       expenses:[],
@@ -1244,9 +1244,21 @@ function importData(input){
             delete m.advanceItems;
             delete m.plannedBudget;
           }
-          if(!m.hardExpenses) m.hardExpenses = [];
           if(!m.reimbursements) m.reimbursements = [];
           if(!m.catMeta) m.catMeta = {};
+          // 迁移 hardExpenses → 普通消费
+          if(m.hardExpenses && m.hardExpenses.length){
+            if(!m.expenses) m.expenses = [];
+            if(!m.plan) m.plan = {};
+            m.hardExpenses.forEach(h=>{
+              if(h.amount > 0){
+                const catName = h.name || '硬性支出';
+                m.expenses.push({id:h.id||('e'+Date.now()+Math.random()),cat:catName,amount:h.amount,note:h.note||'',isAdvance:false});
+                if(m.plan[catName]===undefined) m.plan[catName] = 0;
+              }
+            });
+            delete m.hardExpenses;
+          }
           if(m.goldOverride === undefined) m.goldOverride = null;
           DB.finance[mk] = m;
         });
@@ -1400,16 +1412,19 @@ function loadDB(){
       if(key === 'finance'){
         Object.keys(loaded.finance||{}).forEach(mk=>{
           const m = loaded.finance[mk];
-          // 数据迁移: hardExpense(数字) -> hardExpenses(数组)
-          if(m.hardExpense !== undefined && m.hardExpenses === undefined){
-            if(typeof m.hardExpense === 'number' && m.hardExpense > 0){
-              m.hardExpenses = [{id:'h_'+mk,name:'硬性支出',amount:m.hardExpense,note:''}];
-            } else {
-              m.hardExpenses = [];
-            }
-            delete m.hardExpense;
+          // 数据迁移: hardExpenses → 普通消费
+          if(m.hardExpenses && m.hardExpenses.length){
+            if(!m.expenses) m.expenses = [];
+            if(!m.plan) m.plan = {};
+            m.hardExpenses.forEach(h=>{
+              if(h.amount > 0){
+                const catName = h.name || '硬性支出';
+                m.expenses.push({id:h.id||('e'+Date.now()+Math.random()),cat:catName,amount:h.amount,note:h.note||'',isAdvance:false});
+                if(m.plan[catName]===undefined) m.plan[catName] = 0;
+              }
+            });
+            delete m.hardExpenses;
           }
-          if(m.hardExpenses === undefined) m.hardExpenses = [];
           if(m.catMeta === undefined) m.catMeta = {};
           if(m.goldOverride === undefined) m.goldOverride = null;
           if(m.reimbursements === undefined) m.reimbursements = [];
@@ -1496,7 +1511,7 @@ function emitDecisions(){ state.listeners.decisions.forEach(f=>f()); }
 // ===== 计算工具 =====
 function calcMonthFinance(monthKey){
   const m = DB.finance[monthKey];
-  if(!m) return {expenseTotal:0,hardTotal:0,balance:0,catSummary:{},reimbTotal:0,advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,hardExpenses:[],reimbursements:[],plan:{},catMeta:{}};
+  if(!m) return {expenseTotal:0,balance:0,catSummary:{},reimbTotal:0,advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,reimbursements:[],plan:{},catMeta:{}};
   const catSummary = {};
   const advanceCats = {};
   (m.expenses||[]).forEach(e=>{
@@ -1506,22 +1521,19 @@ function calcMonthFinance(monthKey){
     }
   });
   const monthExpense = Object.values(catSummary).reduce((a,b)=>a+b,0);
-  const hardExpenses = m.hardExpenses||[];
-  const hardTotal = hardExpenses.reduce((s,h)=>s+(h.amount||0),0);
   const reimbursements = m.reimbursements||[];
   const reimbTotal = reimbursements.reduce((s,r)=>s+(r.amount||0),0);
   const advanceTotal = Object.values(advanceCats).reduce((a,b)=>a+b,0);
   const advanceCount = (m.expenses||[]).filter(e=>e.isAdvance).length;
-  const expenseTotal = monthExpense + hardTotal;
-  const goldPlanned = (m.incomePlanned||0) - Object.values(m.plan||{}).reduce((a,b)=>a+b,0) - hardTotal;
-  const goldActual = (m.incomeActual||0) - monthExpense - hardTotal + reimbTotal;
+  const expenseTotal = monthExpense;
+  const goldPlanned = (m.incomePlanned||0) - Object.values(m.plan||{}).reduce((a,b)=>a+b,0);
+  const goldActual = (m.incomeActual||0) - monthExpense + reimbTotal;
   const goldOverride = m.goldOverride;
   const goldFinal = goldOverride !== null ? goldOverride : goldActual;
   const balance = goldFinal;
   return {
     monthExpense, expenseTotal, balance, catSummary,
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
-    hardExpenses, hardTotal,
     reimbursements, reimbTotal,
     advanceTotal, advanceCount, advanceCats,
     plan:m.plan, catMeta:m.catMeta||{},
@@ -1829,10 +1841,9 @@ function analyzeYearFinance(year){
     advanceByMonth.push({month:m, advance:monthAdvance, count:monthAdvanceCount});
 
     const reimbursements = (fin.reimbursements||[]).reduce((s,r)=>s+(r.amount||0),0);
-    const hardTotal = (fin.hardExpenses||[]).reduce((s,h)=>s+(h.amount||0),0);
-    const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0) + hardTotal;
+    const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0);
     const monthIncome = (fin.incomeActual||0);
-    const goldPlanned = (fin.incomePlanned||0) - Object.values(fin.plan||{}).reduce((a,b)=>a+b,0) - hardTotal;
+    const goldPlanned = (fin.incomePlanned||0) - Object.values(fin.plan||{}).reduce((a,b)=>a+b,0);
     const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthExpense + reimbursements);
 
     totalIncome += monthIncome;
@@ -2260,7 +2271,7 @@ function renderFinanceModule(c){
 function renderMoney(c){
   const fin = calcMonthFinance(state.currentMonth);
   const [y,m] = state.currentMonth.split('-');
-  const monthData = DB.finance[state.currentMonth] || {incomePlanned:0,incomeActual:0,hardExpenses:[],catMeta:{},goldOverride:null,expenses:[],reimbursements:[],plan:{}};
+  const monthData = DB.finance[state.currentMonth] || {incomePlanned:0,incomeActual:0,catMeta:{},goldOverride:null,expenses:[],reimbursements:[],plan:{}};
 
   // 预估消费总额和实际消费总额
   const planTotal = Object.values(fin.plan||{}).reduce((a,b)=>a+b,0);
@@ -2346,16 +2357,13 @@ function renderMoney(c){
       </div>
       ${getExpenseRows(fin, monthData)}
 
-      <!-- 硬性支出列表 -->
-      ${renderHardExpenseList(fin)}
-
       <!-- 报销回流记录 -->
       ${renderReimbursementList(fin)}
 
       <!-- 合计 -->
       <div class="cmp-pair-row total-row">
         <span class="cmp-pair-name">消费合计</span>
-        <span class="cmp-pair-col">¥${fmtMoney(planTotal + fin.hardTotal)}</span>
+        <span class="cmp-pair-col">¥${fmtMoney(planTotal)}</span>
         <span class="cmp-pair-col expense">¥${fmtMoney(fin.expenseTotal)}</span>
         <span style="width:28px;"></span>
       </div>
@@ -2392,37 +2400,6 @@ function renderMoney(c){
     ${renderTreasureChest()}
 
     <div style="height:20px;"></div>
-  `;
-}
-
-// ===== 硬性支出列表渲染 =====
-function renderHardExpenseList(fin){
-  if(!fin.hardExpenses || !fin.hardExpenses.length) return `
-    <div style="padding:8px 0;border-top:0.5px solid var(--separator);margin-top:4px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span style="font-size:13px;font-weight:600;color:var(--label);">硬性支出</span>
-        <button class="edit-btn" style="font-size:12px;" onclick="editHardExpense()">＋ 添加</button>
-      </div>
-      <div style="font-size:12px;color:var(--label-3);padding:4px 0;">暂无硬性支出</div>
-    </div>
-  `;
-  const total = fin.hardTotal;
-  return `
-    <div style="padding:8px 0;border-top:0.5px solid var(--separator);margin-top:4px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span style="font-size:13px;font-weight:600;color:var(--label);">硬性支出</span>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <span style="font-size:13px;color:var(--red);font-weight:600;">¥${fmtMoney(total)}</span>
-          <button class="edit-btn" style="font-size:12px;" onclick="editHardExpense()">编辑</button>
-        </div>
-      </div>
-      ${fin.hardExpenses.map(h=>`
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;">
-          <span style="color:var(--label-2);">${h.name}${h.note?' · '+h.note:''}</span>
-          <span>¥${fmtMoney(h.amount)}</span>
-        </div>
-      `).join('')}
-    </div>
   `;
 }
 
@@ -2818,7 +2795,7 @@ function getExpenseRows(fin, monthData){
     const barColor = diff > 0 ? '#FF9500' : (diff < 0 ? '#34C759' : '#007AFF');
     const diffStr = diff===0 ? '<span style="color:var(--label-3);font-size:11px;">刚好</span>' : (diff>0 ? '<span style="color:#FF9500;font-size:11px;">超¥'+fmtMoney(diff)+'</span>' : '<span style="color:#34C759;font-size:11px;">省¥'+fmtMoney(-diff)+'</span>');
     const notes = (monthData.expenses||[]).filter(e=>e.cat===cat && e.note);
-    const notesHtml = notes.length ? '<div style="font-size:11px;color:var(--label-3);padding:2px 0 0;line-height:1.4;">' + notes.map(e=>'· '+e.note+(e.isAdvance?' ⚠️':'')).join('<br>') + '</div>' : '';
+    const notesHtml = notes.length ? '<div style="font-size:11px;color:var(--label-3);padding:2px 0 0;line-height:1.4;">' + notes.map(e=>'· '+e.note+(e.isAdvance?(e.installmentTotal?' ⚠️分期'+e.installmentIndex+'/'+e.installmentTotal:' ⚠️'):'')).join('<br>') + '</div>' : '';
     const safeCat = cat.replace(/'/g,'').replace(/"/g,'');
     return `
       <div class="cmp-pair-row" style="flex-direction:column;align-items:stretch;">
@@ -2868,9 +2845,17 @@ function openAddExpenseItem(){
     </div>
     <div class="sheet-field">
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;">
-        <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;">
+        <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;" onchange="toggleAdvanceOptions()">
         <span>⚠️ 超前消费（分期/赊账）</span>
       </label>
+      <div id="advanceOptions" style="display:none;margin-top:8px;padding:10px;background:#FFF3E0;border-radius:8px;">
+        <div class="sheet-label" style="margin-bottom:4px;">分期期数</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input class="sheet-input" id="expItemInstallments" type="number" value="1" min="1" style="flex:1;" onchange="updateInstallmentHint()">
+          <span style="font-size:12px;color:var(--label-3);">期</span>
+        </div>
+        <div id="installmentHint" style="font-size:11px;color:var(--orange);margin-top:6px;line-height:1.4;"></div>
+      </div>
     </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
@@ -2917,22 +2902,89 @@ function delExpCat(){
   toast('已删除分类: '+cat);
 }
 
+function toggleAdvanceOptions(){
+  const checked = document.getElementById('expItemAdvance').checked;
+  document.getElementById('advanceOptions').style.display = checked ? 'block' : 'none';
+  if(checked) updateInstallmentHint();
+}
+
+function updateInstallmentHint(){
+  const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
+  const installments = parseInt(document.getElementById('expItemInstallments').value)||1;
+  const hint = document.getElementById('installmentHint');
+  if(installments <= 1){
+    hint.textContent = '单期：当月记录此金额（用于历史遗留分期手动录入）';
+  } else {
+    const monthly = (amount / installments).toFixed(2);
+    // 计算下个月
+    const [y,m] = state.currentMonth.split('-').map(Number);
+    let ny = y, nm = m + 1;
+    if(nm > 12){ nm = 1; ny++; }
+    const nextMonth = ny + '年' + nm + '月';
+    hint.textContent = '总额 ¥' + fmtMoney(amount) + ' 分 ' + installments + ' 期，每期 ¥' + monthly + '，从 ' + nextMonth + ' 开始自动生成还款记录';
+  }
+}
+
+// 监听金额输入变化时更新提示
+document.addEventListener('input', function(e){
+  if(e.target.id === 'expItemAmount' && document.getElementById('expItemAdvance')?.checked){
+    updateInstallmentHint();
+  }
+});
+
 function confirmAddExpenseItem(){
   const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
   const note = document.getElementById('expItemNote').value.trim();
   const isAdvance = document.getElementById('expItemAdvance').checked;
+  const installments = isAdvance ? (parseInt(document.getElementById('expItemInstallments').value)||1) : 1;
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance});
   if(!m.plan) m.plan = {};
   if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
-  saveDB();
-  closeSheet();
-  renderMoney(document.getElementById('content'));
-  emitSaved();
-  toast('已添加消费明细');
+
+  if(isAdvance && installments > 1){
+    // 分期：当月不产生支出，从下月开始自动生成每期还款
+    const monthlyAmount = amount / installments;
+    const baseId = Date.now();
+    const [cy, cm] = state.currentMonth.split('-').map(Number);
+    for(let i = 0; i < installments; i++){
+      let y = cy, mo = cm + 1 + i;
+      while(mo > 12){ mo -= 12; y++; }
+      const mk = y + '-' + String(mo).padStart(2,'0');
+      if(!DB.finance[mk]){
+        DB.finance[mk] = { incomePlanned:0, incomeActual:0, catMeta:{}, goldOverride:null, expenses:[], reimbursements:[], plan:{} };
+      }
+      const tm = DB.finance[mk];
+      if(!tm.expenses) tm.expenses = [];
+      if(!tm.plan) tm.plan = {};
+      if(tm.plan[selectedExpItemCat]===undefined) tm.plan[selectedExpItemCat] = 0;
+      tm.expenses.push({
+        id: 'e' + baseId + '_' + i,
+        cat: selectedExpItemCat,
+        amount: monthlyAmount,
+        note: note ? note + '(分期' + (i+1) + '/' + installments + ')' : '分期' + (i+1) + '/' + installments,
+        isAdvance: true,
+        installmentId: baseId,
+        installmentIndex: i+1,
+        installmentTotal: installments
+      });
+    }
+    saveDB();
+    closeSheet();
+    renderMoney(document.getElementById('content'));
+    emitSaved();
+    toast('已添加分期：¥' + fmtMoney(amount) + ' 分 ' + installments + ' 期，每月 ¥' + monthlyAmount.toFixed(2));
+  } else {
+    // 普通消费 或 单期超前消费（手动录入历史遗留分期）
+    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance});
+    saveDB();
+    closeSheet();
+    renderMoney(document.getElementById('content'));
+    emitSaved();
+    toast(isAdvance ? '已添加超前消费记录' : '已添加消费明细');
+  }
 }
 
 // 添加报销回流
@@ -2991,6 +3043,7 @@ function editExpenseItem(cat){
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${e.isAdvance?'background:#FFF3E0;border-radius:8px;padding:8px;margin:4px 0;':''}">
           <div style="flex:1;">
             <span>¥${fmtMoney(e.amount)}</span>
+            ${e.installmentTotal ? '<span style="font-size:11px;color:var(--orange);margin-left:4px;">分期'+e.installmentIndex+'/'+e.installmentTotal+'</span>' : ''}
             <input class="sheet-input" id="expNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注(可选)" style="width:120px;height:28px;font-size:13px;margin-left:8px;padding:0 8px;display:inline-block;">
             <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;">
               <input type="checkbox" id="expAdvance_${idx}" ${e.isAdvance?'checked':''} style="width:16px;height:16px;">
@@ -3065,7 +3118,7 @@ function changeMonth(delta){
   // 起始月份2026-07，不能往前翻到更早
   if(key < '2026-07') { toast('2026年7月是起始月'); return; }
   if(!DB.finance[key]){
-    DB.finance[key] = { incomePlanned:0, incomeActual:0, hardExpenses:[], catMeta:{}, goldOverride:null, expenses:[], reimbursements:[], plan:{} };
+    DB.finance[key] = { incomePlanned:0, incomeActual:0, catMeta:{}, goldOverride:null, expenses:[], reimbursements:[], plan:{} };
   }
   state.currentMonth = key;
   saveDB();
@@ -3146,80 +3199,6 @@ function resetGoldOverride(){
   saveDB();
   renderMoney(document.getElementById('content'));
   toast('已恢复自动计算');
-}
-
-// 硬性支出管理（列表式）
-function editHardExpense(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m){ toast('请先切换到有效月份'); return; }
-  if(!m.hardExpenses) m.hardExpenses = [];
-  renderHardExpenseSheet();
-}
-
-function renderHardExpenseSheet(){
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  openSheet(`
-    <div class="sheet-title">硬性支出 · ${state.currentMonth}</div>
-    <div id="hardExpList">
-      ${m.hardExpenses.map((h,idx)=>`
-        <div class="sheet-field" style="display:flex;align-items:center;gap:8px;background:#F9F9FB;border-radius:8px;padding:10px;margin-bottom:6px;">
-          <div style="flex:1;">
-            <input class="sheet-input" id="hardName_${idx}" value="${h.name}" placeholder="名称" style="margin-bottom:4px;">
-            <div style="display:flex;gap:4px;">
-              <input class="sheet-input" id="hardAmount_${idx}" type="number" value="${h.amount}" placeholder="金额" style="flex:1;">
-              <input class="sheet-input" id="hardNote_${idx}" value="${h.note||''}" placeholder="备注" style="flex:1;">
-            </div>
-          </div>
-          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delHardExpense('${h.id}')">🗑</button>
-        </div>
-      `).join('') || '<div style="color:var(--label-3);font-size:14px;text-align:center;padding:20px;">暂无硬性支出</div>'}
-    </div>
-    <button class="cmp-add-btn" style="width:100%;margin-bottom:12px;" onclick="addHardExpense()">+ 添加硬性支出</button>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveHardExpenses()">保存</button>
-    </div>
-  `);
-}
-
-function addHardExpense(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  if(!m.hardExpenses) m.hardExpenses = [];
-  m.hardExpenses.push({id:'h'+Date.now(),name:'',amount:0,note:''});
-  renderHardExpenseSheet();
-}
-
-function delHardExpense(id){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  m.hardExpenses = m.hardExpenses.filter(h=>h.id!==id);
-  renderHardExpenseSheet();
-  toast('已删除');
-}
-
-function saveHardExpenses(){
-  haptic();
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  m.hardExpenses.forEach((h,idx)=>{
-    const nameEl = document.getElementById('hardName_'+idx);
-    const amtEl = document.getElementById('hardAmount_'+idx);
-    const noteEl = document.getElementById('hardNote_'+idx);
-    if(nameEl) h.name = nameEl.value.trim() || '未命名';
-    if(amtEl) h.amount = parseFloat(amtEl.value)||0;
-    if(noteEl) h.note = noteEl.value.trim();
-  });
-  // 过滤掉金额为0的空记录
-  m.hardExpenses = m.hardExpenses.filter(h=>h.amount > 0);
-  saveDB();
-  closeSheet();
-  renderMoney(document.getElementById('content'));
-  toast('硬性支出已更新');
 }
 
 // 编辑分类计划值(用于预算管理)
@@ -6023,8 +6002,8 @@ document.getElementById('content').addEventListener('touchend',e=>{
 loadDB();
 // 初始化
 switchModule('home');
-// 检查云端同步状态
-cloudCheckOnLoad();
+// 延迟检查云端同步状态（不阻塞页面渲染）
+setTimeout(()=>cloudCheckOnLoad(), 2000);
 </script>
 </body>
 </html>
