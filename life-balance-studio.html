@@ -975,6 +975,8 @@ function saveDB(){
       console.error('保存失败:', e2);
     }
   }
+  // 自动云同步（静默，5秒后执行）
+  autoCloudSync();
 }
 
 // ===== 数据导出/导入 =====
@@ -991,6 +993,121 @@ function exportData(){
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast('数据已导出，请保存到文件');
+}
+
+// ===== Supabase 云同步 =====
+const SUPABASE_URL = 'https://vdjphermisxenpsdxgm.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkanBoZXJtc2lzeGVucHNkeGdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1MTQzNzcsImV4cCI6MjEwMjA5MDM3N30.L2hNZ1_BAAMgqiLSEM3d7gqzULU0maiD95V5Q_xz0G0';
+
+function getDeviceId(){
+  let id = localStorage.getItem('lb_device_id');
+  if(!id){
+    id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2,10);
+    localStorage.setItem('lb_device_id', id);
+  }
+  return id;
+}
+
+function getCloudVersion(){
+  return parseInt(localStorage.getItem('lb_cloud_version') || '0');
+}
+
+function setCloudVersion(v){
+  localStorage.setItem('lb_cloud_version', String(v));
+}
+
+function updateSyncStatus(text){
+  const el = document.getElementById('syncStatus');
+  if(el) el.textContent = text;
+}
+
+let autoSyncTimer = null;
+function autoCloudSync(){
+  if(autoSyncTimer) clearTimeout(autoSyncTimer);
+  autoSyncTimer = setTimeout(()=>{ cloudSync(false); }, 5000);
+}
+
+async function cloudSync(showToast){
+  try {
+    if(showToast){ toast('☁️ 正在上传...'); haptic(); }
+    const deviceId = getDeviceId();
+    const version = getCloudVersion() + 1;
+    const data = JSON.stringify(DB);
+    
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}`, {
+      method: 'GET',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    const existing = await resp.json();
+    
+    if(existing && existing.length > 0){
+      const resp2 = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}`, {
+        method: 'PATCH',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ data, version, updated_at: new Date().toISOString() })
+      });
+      if(!resp2.ok) throw new Error('上传失败');
+    } else {
+      const resp2 = await fetch(`${SUPABASE_URL}/rest/v1/user_data`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ device_id: deviceId, data, version, updated_at: new Date().toISOString() })
+      });
+      if(!resp2.ok) throw new Error('上传失败');
+    }
+    
+    setCloudVersion(version);
+    const timeStr = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+    updateSyncStatus('☁️ 已同步 '+timeStr);
+    if(showToast) toast('☁️ 云端上传成功');
+  } catch(e){
+    updateSyncStatus('☁️ 同步失败');
+    if(showToast) toast('云同步失败: ' + e.message);
+  }
+}
+
+async function cloudPull(){
+  try {
+    toast('☁️ 正在拉取...'); haptic();
+    const deviceId = getDeviceId();
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}&order=version.desc&limit=1`, {
+      method: 'GET',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    const result = await resp.json();
+    if(!result || result.length === 0){ toast('云端暂无数据'); return; }
+    
+    const record = result[0];
+    const cloudData = typeof record.data === 'string' ? JSON.parse(record.data) : record.data;
+    
+    if(!confirm(`云端版本 v${record.version}（${new Date(record.updated_at).toLocaleString('zh-CN')}）\n确定用云端数据覆盖本地？`)) return;
+    
+    Object.keys(cloudData).forEach(key=>{ DB[key] = cloudData[key]; });
+    saveDB();
+    setCloudVersion(record.version);
+    const timeStr = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+    updateSyncStatus('☁️ 已拉取 '+timeStr);
+    closeSheet();
+    switchModule('home');
+    toast('☁️ 云端拉取成功');
+  } catch(e){
+    toast('云端拉取失败: ' + e.message);
+  }
+}
+
+async function cloudCheckOnLoad(){
+  try {
+    const deviceId = getDeviceId();
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}&select=version,updated_at&order=version.desc&limit=1`, {
+      method: 'GET',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    const result = await resp.json();
+    if(result && result.length > 0){
+      const timeStr = new Date(result[0].updated_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+      updateSyncStatus('☁️ v'+result[0].version+' '+timeStr);
+    }
+  } catch(e){}
 }
 
 function importData(input){
@@ -1531,10 +1648,17 @@ function renderHome(c){
 
     <!-- 数据管理 -->
     <div class="card" style="padding:12px;margin-bottom:8px;">
-      <div style="font-size:15px;font-weight:600;margin-bottom:8px;">💾 情报管理</div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:15px;font-weight:600;">💾 情报管理</div>
+        <span id="syncStatus" style="font-size:11px;color:var(--label-3);"></span>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
         <button class="sheet-btn sheet-btn-secondary" style="flex:1;" onclick="exportData()">📤 情报转服</button>
         <button class="sheet-btn sheet-btn-secondary" style="flex:1;" onclick="document.getElementById('importFileInput').click()">📥 情报录入</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;background:#E8F5E9;color:var(--green);" onclick="cloudSync(true)">☁️ 云端上传</button>
+        <button class="sheet-btn sheet-btn-secondary" style="flex:1;background:#E3F2FD;color:var(--blue);" onclick="cloudPull()">☁️ 云端拉取</button>
       </div>
       <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
     </div>
@@ -5798,6 +5922,8 @@ document.getElementById('content').addEventListener('touchend',e=>{
 loadDB();
 // 初始化
 switchModule('home');
+// 检查云端同步状态
+cloudCheckOnLoad();
 </script>
 </body>
 </html>
