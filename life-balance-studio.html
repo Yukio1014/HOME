@@ -801,6 +801,12 @@ input,textarea{font-family:inherit;}
 </style>
 </head>
 <body>
+<!-- 启动骨架屏：防止白屏等待 -->
+<div id="bootScreen" style="position:fixed;inset:0;z-index:9999;background:#F2F2F7;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+  <div style="font-size:15px;font-weight:600;color:#007AFF;letter-spacing:1px;">LIFE BALANCE</div>
+  <div style="margin-top:12px;width:36px;height:36px;border:3px solid #E5E5EA;border-top-color:#007AFF;border-radius:50%;animation:bootSpin 1s linear infinite;"></div>
+</div>
+<style>@keyframes bootSpin{to{transform:rotate(360deg);}}</style>
 <div id="app">
   <!-- 侧边栏遮罩 -->
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -2301,98 +2307,70 @@ function renderMoney(c){
       <button class="month-nav-btn" onclick="changeMonth(1)">›</button>
     </div>
 
-    <!-- 第一行：主线任务报酬 -->
-    <div class="card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>主线任务报酬</span>
-        <button class="edit-btn" onclick="editIncome()">编辑</button>
-      </div>
-      <div class="cmp-pair-head">
-        <span class="cmp-pair-name">明细</span>
-        <span class="cmp-pair-col">预计值</span>
-        <span class="cmp-pair-col">合计值</span>
-        <span style="width:28px;"></span>
-      </div>
-      <div class="cmp-pair-row">
-        <span class="cmp-pair-name">报酬</span>
-        <span class="cmp-pair-col">¥ ${fmtMoney(fin.incomePlanned)}</span>
-        <span class="cmp-pair-col income">¥ ${fmtMoney(fin.incomeActual)}</span>
-        <span style="width:28px;"></span>
-      </div>
-    </div>
+    <!-- 单一整合卡片：月结金币 + 报酬 + 预算 + 战录 -->
+    <div class="card" style="padding:0;overflow:hidden;">
 
-    <!-- 第二行：补给预算计划 -->
-    <div class="card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>补给预算计划</span>
-        <button class="edit-btn" onclick="editBudget()">预算</button>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
-        <div>
-          <div style="font-size:11px;color:var(--label-3);">本月预算</div>
-          <div style="font-size:22px;font-weight:700;color:var(--label);">¥${fmtMoney(budget)}</div>
+      <!-- 顶部：月结金币（渐变蓝主视觉） -->
+      <div style="background:linear-gradient(135deg,#007AFF,#5856D6);padding:16px;color:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.9);">💰 月结金币</span>
+          <div style="display:flex;gap:6px;">
+            ${fin.goldOverride !== null ? `<button class="edit-btn" style="color:#FFD700;" onclick="resetGoldOverride()">恢复自动</button>` : ''}
+            <button class="edit-btn" style="color:#fff;" onclick="editGoldOverride()">覆盖</button>
+          </div>
         </div>
-        <div style="text-align:right;">
-          <div style="font-size:11px;color:var(--label-3);">已用 ¥${fmtMoney(actualTotal)}</div>
-          <div style="font-size:13px;font-weight:600;color:${diffTotal>0?'var(--red)':'var(--green)'};">${diffTotal>0?'超支 ¥':'剩余 ¥'}${fmtMoney(Math.abs(diffTotal))}</div>
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;">
+          <div>
+            <div style="font-size:11px;color:rgba(255,255,255,.6);">实际</div>
+            <div style="font-size:34px;font-weight:700;line-height:1.1;">¥${fmtMoney(fin.goldFinal)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:rgba(255,255,255,.6);">预计</div>
+            <div style="font-size:18px;font-weight:600;color:rgba(255,255,255,.9);">¥${fmtMoney(fin.goldPlanned)}</div>
+          </div>
+        </div>
+        ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;margin-top:6px;">⚠️ 已手动覆盖</div>' : ''}
+        <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);">
+          = 工资 ¥${fmtMoney(fin.incomeActual)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(actualTotal)}
         </div>
       </div>
-      <!-- 渐变警示进度条：绿→黄→红 -->
-      <div style="background:#E5E5EA;height:10px;border-radius:5px;overflow:hidden;">
-        <div style="background:${budgetGradient(diffPct)};width:${Math.min(100,diffPct)}%;height:100%;border-radius:5px;transition:all .3s;"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--label-3);margin-top:4px;">
-        <span>0</span>
-        <span>预算 ¥${fmtMoney(budget)}</span>
-      </div>
-      ${advanceTotal > 0 ? `
-      <div style="margin-top:8px;padding-top:8px;border-top:0.5px solid #E5E5EA;font-size:11px;color:#FF9500;">
-        ⚠️ 已含超前消费 ¥${fmtMoney(advanceTotal)} (${advanceCount}笔) · 已从收入扣除
-      </div>
-      ` : ''}
-    </div>
 
-    <!-- 第三行：战录 -->
-    <div class="card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>战录</span>
-        <button class="edit-btn" style="color:var(--red);" onclick="openAddExpenseItem()">＋录入消费</button>
-      </div>
-
-      <!-- 分类累计列表 -->
-      ${getExpenseRows(fin, monthData)}
-      <div class="cmp-pair-row total-row">
-        <span class="cmp-pair-name">本月消费</span>
-        <span class="cmp-pair-col">—</span>
-        <span class="cmp-pair-col expense">¥${fmtMoney(actualTotal)}</span>
-        <span style="width:28px;"></span>
-      </div>
-    </div>
-
-    <!-- 月结金币（渐变蓝填充） -->
-    <div class="card gold-coin-card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="color:#fff;">💰 月结金币</span>
-        <div style="display:flex;gap:6px;">
-          ${fin.goldOverride !== null ? `<button class="edit-btn" style="color:#FFD700;" onclick="resetGoldOverride()">恢复自动</button>` : ''}
-          <button class="edit-btn" style="color:#fff;" onclick="editGoldOverride()">覆盖</button>
+      <!-- 主线任务报酬 -->
+      <div style="padding:12px 14px;border-bottom:.5px solid var(--separator);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:14px;font-weight:600;color:var(--label);">主线任务报酬</span>
+          <button class="edit-btn" onclick="editIncome()">编辑</button>
+        </div>
+        <div style="display:flex;align-items:center;">
+          <span style="flex:1;font-size:13px;color:var(--label-2);">报酬</span>
+          <span style="width:80px;text-align:right;font-size:13px;color:var(--label-3);">预计 ¥${fmtMoney(fin.incomePlanned)}</span>
+          <span style="width:80px;text-align:right;font-size:14px;font-weight:600;color:var(--blue);">¥${fmtMoney(fin.incomeActual)}</span>
         </div>
       </div>
-      <div class="cmp-pair-head">
-        <span class="cmp-pair-name" style="color:rgba(255,255,255,.7);">明细</span>
-        <span class="cmp-pair-col" style="color:rgba(255,255,255,.7);">预计</span>
-        <span class="cmp-pair-col" style="color:rgba(255,255,255,.7);">实际</span>
-        <span style="width:28px;"></span>
+
+      <!-- 补给预算计划 -->
+      <div style="padding:12px 14px;border-bottom:.5px solid var(--separator);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:14px;font-weight:600;color:var(--label);">补给预算计划</span>
+          <button class="edit-btn" onclick="editBudget()">预算</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
+          <div style="font-size:13px;color:var(--label-3);">预算 ¥${fmtMoney(budget)}</div>
+          <div style="font-size:13px;font-weight:600;color:${diffTotal>0?'var(--red)':'var(--green)'};">已用 ¥${fmtMoney(actualTotal)} · ${diffTotal>0?'超支':'剩余'} ¥${fmtMoney(Math.abs(diffTotal))}</div>
+        </div>
+        <!-- 渐变警示进度条：绿→黄→红 -->
+        <div style="background:#E5E5EA;height:8px;border-radius:4px;overflow:hidden;">
+          <div style="background:${budgetGradient(diffPct)};width:${Math.min(100,diffPct)}%;height:100%;border-radius:4px;transition:all .3s;"></div>
+        </div>
       </div>
-      <div class="cmp-pair-row">
-        <span class="cmp-pair-name" style="color:#fff;">金币</span>
-        <span class="cmp-pair-col" style="color:rgba(255,255,255,.9);">¥ ${fmtMoney(fin.goldPlanned)}</span>
-        <span class="cmp-pair-col" style="color:#fff;font-weight:600;">¥ ${fmtMoney(fin.goldFinal)}</span>
-        <span style="width:28px;"></span>
-      </div>
-      ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;padding:4px 0;">⚠️ 已手动覆盖</div>' : ''}
-      <div style="font-size:11px;color:rgba(255,255,255,.5);padding:4px 0;">
-        = 实际工资 ¥${fmtMoney(fin.incomeActual)} - 超前消费 ¥${fmtMoney(advanceTotal)} - 消费 ¥${fmtMoney(actualTotal)}
+
+      <!-- 战录（消费流水） -->
+      <div style="padding:12px 14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:14px;font-weight:600;color:var(--label);">战录</span>
+          <button class="edit-btn" style="color:var(--red);" onclick="openAddExpenseItem()">＋录入消费</button>
+        </div>
+        ${getExpenseRows(fin, monthData)}
       </div>
     </div>
 
@@ -5918,6 +5896,8 @@ document.getElementById('content').addEventListener('touchend',e=>{
 loadDB();
 // 初始化
 switchModule('home');
+// 移除启动骨架屏
+var bootEl=document.getElementById('bootScreen'); if(bootEl) bootEl.remove();
 // 延迟检查云端同步状态（不阻塞页面渲染）
 setTimeout(()=>cloudCheckOnLoad(), 2000);
 </script>
