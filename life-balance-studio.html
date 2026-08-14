@@ -892,6 +892,9 @@ const DB = {
   // 奖励库
   rewardPool: 0,
 
+  // 年度归档：已归档年份的汇总数据（明细已清除）
+  archive: {},
+
   // 财务数据 - 按月存储 (起始月2026-07)
   finance:{
     '2026-07':{
@@ -1487,6 +1490,8 @@ const state = {
   expandedCmp: new Set(),
   decisionTab: '待办',
   archiveYear: new Date().getFullYear(),
+  financeView: 'report',   // 'report'=经济战报 | 'archive'=封存卷轴
+  archiveScrollYear: null, // 封存卷轴中选中的年份
   studyTimerInterval: null,
   studyViewMode: 'week',
   multiTaskDates: new Set(),
@@ -2275,11 +2280,249 @@ function autoGeneratePlan(year){
 
 // ===== 经济战报（独立板块） =====
 function renderFinanceModule(c){
+  const view = state.financeView || 'report';
   c.innerHTML = `
     <div class="section-title">经济战报</div>
-    ${renderFinanceReport(state.archiveYear)}
+    <!-- 视图切换：经济战报 / 封存卷轴 -->
+    <div style="display:flex;gap:0;border-radius:10px;overflow:hidden;border:1px solid var(--separator);margin-bottom:8px;">
+      <button style="flex:1;padding:10px 0;font-size:14px;font-weight:600;border:none;background:${view==='report'?'linear-gradient(135deg,#5E5CE6,#AF52DE)':'var(--card)'};color:${view==='report'?'#fff':'var(--label-2)'};" onclick="state.financeView='report';renderFinanceModule(document.getElementById('content'))">📊 经济战报</button>
+      <button style="flex:1;padding:10px 0;font-size:14px;font-weight:600;border:none;background:${view==='archive'?'linear-gradient(135deg,#FF9500,#FF3B30)':'var(--card)'};color:${view==='archive'?'#fff':'var(--label-2)'};" onclick="state.financeView='archive';renderFinanceModule(document.getElementById('content'))">📜 封存卷轴</button>
+    </div>
+    ${view === 'archive' ? renderArchiveModule() : renderFinanceReport(state.archiveYear)}
     <div style="height:20px;"></div>
   `;
+}
+
+// ===== 封存卷轴：已归档年度汇总 =====
+function renderArchiveModule(){
+  const archives = Object.keys(DB.archive||{}).sort((a,b)=>b-a);
+  if(!archives.length){
+    return `
+      <div class="card" style="padding:20px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:8px;">📜</div>
+        <div style="font-size:15px;font-weight:600;color:var(--label);">封存卷轴 · 暂无归档</div>
+        <div style="font-size:13px;color:var(--label-3);margin-top:6px;line-height:1.5;">
+          在「经济战报」中选择一个已结束的年份，点击「封存」<br>
+          即可将那年 12 个月的明细压缩为年度总览
+        </div>
+      </div>
+    `;
+  }
+  // 选中年份（默认最新的）
+  const year = state.archiveScrollYear || archives[0];
+  const arc = DB.archive[String(year)];
+  const yearsTabs = archives.map(y=>`<option value="${y}" ${String(y)===String(year)?'selected':''}>${y}纪年</option>`).join('');
+  if(!arc) return '<div class="card">归档数据缺失</div>';
+
+  // 资源分配图（消费分类占比）
+  const cats = Object.entries(arc.catSummary||{}).sort((a,b)=>b[1]-a[1]);
+  const catTotal = cats.reduce((s,[,v])=>s+v,0);
+
+  // AI 静态分析（规则化本地生成）
+  const ai = generateArchiveAnalysis(arc, year);
+
+  return `
+    <div class="card" style="padding:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:16px;font-weight:700;">📜 ${year} 封存卷轴</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${arc.monthCount>0 ? `<span style="font-size:11px;color:var(--label-3);">${arc.monthCount}个月</span>` : ''}
+          <select class="sheet-input" style="width:84px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveScrollYear=parseInt(this.value);renderFinanceModule(document.getElementById('content'))">
+            ${yearsTabs}
+          </select>
+        </div>
+      </div>
+
+      <!-- 总产出 -->
+      <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;padding:14px;margin-bottom:8px;color:#fff;">
+        <div style="font-size:12px;color:rgba(255,255,255,.75);">总产出（全年工资）</div>
+        <div style="font-size:28px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.incomeTotal||0)}</div>
+      </div>
+
+      <!-- 总消耗 + 宝箱填充量 -->
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <div style="flex:1;background:linear-gradient(135deg,#f093fb,#f5576c);border-radius:12px;padding:14px;color:#fff;">
+          <div style="font-size:12px;color:rgba(255,255,255,.8);">总消耗</div>
+          <div style="font-size:22px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.expenseTotal||0)}</div>
+        </div>
+        <div style="flex:1;background:linear-gradient(135deg,#43e97b,#38f9d7);border-radius:12px;padding:14px;color:#0b3d2e;">
+          <div style="font-size:12px;color:rgba(0,0,0,.55);">宝箱填充量（存款）</div>
+          <div style="font-size:22px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.savedTotal||0)}</div>
+        </div>
+      </div>
+
+      <!-- 越界记录 -->
+      ${arc.advanceTotal>0 ? `
+      <div style="background:linear-gradient(135deg,#ff9a9e,#fecfef);border-radius:12px;padding:12px;margin-bottom:8px;">
+        <div style="font-size:12px;color:#7a2d2d;font-weight:600;">⚠️ 越界记录（超前消费）</div>
+        <div style="font-size:18px;font-weight:700;color:#c0392b;margin-top:2px;">¥${fmtMoney(arc.advanceTotal)}</div>
+      </div>` : ''}
+
+      <!-- 资源分配图（消费分类） -->
+      <div style="background:linear-gradient(135deg,#a8edea,#fed6e3);border-radius:12px;padding:12px;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:#2c3e50;margin-bottom:8px;">🧩 资源分配图（全年消费分类）</div>
+        ${cats.length ? cats.map(([c,v])=>{
+          const pct = catTotal>0 ? Math.round(v/catTotal*100) : 0;
+          return `
+          <div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:#34495e;margin-bottom:2px;">
+              <span>${c}</span><span>¥${fmtMoney(v)} · ${pct}%</span>
+            </div>
+            <div style="background:rgba(255,255,255,.6);height:6px;border-radius:3px;overflow:hidden;">
+              <div style="background:${catBarColor(pct)};width:${pct}%;height:100%;border-radius:3px;"></div>
+            </div>
+          </div>`;
+        }).join('') : '<div style="font-size:12px;color:#7f8c8d;">无消费记录</div>'}
+        <div style="font-size:12px;color:#7f8c8d;margin-top:4px;">全年消费总额 ¥${fmtMoney(catTotal)}</div>
+      </div>
+
+      <!-- AI 静态分析 -->
+      <div style="background:linear-gradient(135deg,#667eea22,#764ba222);border-radius:12px;padding:12px;border:1px solid #667eea22;">
+        <div style="font-size:13px;font-weight:700;color:#5B4B8A;margin-bottom:8px;">🤖 静态分析</div>
+        <div style="font-size:13px;color:#3a2a5a;line-height:1.6;">${ai}</div>
+      </div>
+
+      <div style="font-size:11px;color:var(--label-3);margin-top:8px;text-align:center;">封存时刻：${arc.archivedAt||'—'}</div>
+    </div>
+  `;
+}
+
+// 消费分类进度条颜色
+function catBarColor(pct){
+  if(pct>=40) return 'linear-gradient(90deg,#e74c3c,#c0392b)';
+  if(pct>=20) return 'linear-gradient(90deg,#f39c12,#e67e22)';
+  if(pct>=10) return 'linear-gradient(90deg,#f1c40f,#f39c12)';
+  return 'linear-gradient(90deg,#2ecc71,#27ae60)';
+}
+
+// 封存卷轴：AI 静态分析（规则化本地生成）
+function generateArchiveAnalysis(arc, year){
+  const lines = [];
+  const income = arc.incomeTotal||0;
+  const expense = arc.expenseTotal||0;
+  const saved = arc.savedTotal||0;
+  const cats = Object.entries(arc.catSummary||{}).sort((a,b)=>b[1]-a[1]);
+
+  // 消费占产出比
+  if(income>0){
+    const spendRate = Math.round(expense/income*100);
+    if(spendRate >= 90) lines.push(`${year}年消费占总产出的 ${spendRate}%，几乎没存下钱，明年需要收紧消费。`);
+    else if(spendRate >= 70) lines.push(`${year}年消费占总产出的 ${spendRate}%，储蓄偏低，建议控制非必要支出。`);
+    else if(spendRate >= 50) lines.push(`${year}年消费占总产出的 ${spendRate}%，整体稳健，有不错的储蓄空间。`);
+    else lines.push(`${year}年消费控制得很好，仅占总产出的 ${spendRate}%，储蓄能力强。`);
+  }
+
+  // 分类TOP
+  if(cats.length){
+    const [topCat, topVal] = cats[0];
+    const topPct = expense>0 ? Math.round(topVal/expense*100) : 0;
+    lines.push(`消费最多的是「${topCat}」，全年 ¥${fmtMoney(topVal)}，占消费的 ${topPct}%。`);
+    if(cats.length>1){
+      const [, secondVal] = cats[1];
+      if(secondVal > topVal*0.6) lines.push(`「${cats[1][0]}」也占比不低（¥${fmtMoney(secondVal)}），可重点关注。`);
+    }
+  }
+
+  // 若维持现状预测
+  if(income>0 && saved>=0){
+    const saveRate = Math.round(saved/income*100);
+    lines.push(`若维持当前收支，预计每年可存下约 ¥${fmtMoney(saved)}（产出留存率 ${saveRate}%）。`);
+  }
+
+  // 越界提醒
+  if(arc.advanceTotal>0){
+    lines.push(`当年有 ¥${fmtMoney(arc.advanceTotal)} 越界（超前消费），占用了一部分未来收入，建议逐年控制。`);
+  }
+
+  if(!lines.length) lines.push('本年度数据较少，暂无深入分析。');
+  return lines.join('<br>');
+}
+
+// ===== 封存动作：将某年 12 个月明细压缩为年度汇总 =====
+function confirmArchiveYear(year){
+  haptic();
+  const yStr = String(year);
+  // 统计该年实际有数据的月份
+  let monthCount = 0, hasAdvance = false;
+  for(let m=1;m<=12;m++){
+    const mk = yStr + '-' + String(m).padStart(2,'0');
+    const fin = DB.finance[mk];
+    if(!fin) continue;
+    monthCount++;
+    if((fin.expenses||[]).some(e=>e.isAdvance)) hasAdvance = true;
+  }
+  if(monthCount === 0 && !DB.archive[yStr]){
+    alert(yStr + '年没有可封存的月份数据。');
+    return;
+  }
+  const currentYear = new Date().getFullYear();
+  const warn = (year >= currentYear && monthCount>0)
+    ? `\n\n⚠️ 注意：${yStr}年尚未结束，封存后将无法再逐月记录该年的消费！\n建议只封存已结束的年份。`
+    : '';
+  if(!confirm(`📜 确认封存 ${yStr}年？\n\n将把 ${yStr}年 ${monthCount} 个月的所有财务明细压缩为年度总览。\n压缩后：总产出 / 总消耗 / 资源分配图 / 宝箱填充量 / 越界记录 / 静态分析。\n\n该 ${monthCount} 个月的月度明细将被清除（可在封存卷轴查看年度汇总）。${hasAdvance?'\n\n⚠️ 该年含超前消费（越界）记录，已计入越界记录。':''}${warn}`)) return;
+  archiveYear(year);
+}
+
+function archiveYear(year){
+  const yStr = String(year);
+  // 1. 汇总该年 12 个月
+  const catSummary = {};
+  let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0;
+  let monthCount = 0;
+  for(let m=1;m<=12;m++){
+    const mk = yStr + '-' + String(m).padStart(2,'0');
+    const fin = DB.finance[mk];
+    if(!fin) continue;
+    monthCount++;
+    let monthAdvance = 0, monthExpense = 0;
+    (fin.expenses||[]).forEach(e=>{
+      if(e.isAdvance){
+        monthAdvance += e.amount;
+        advanceTotal += e.amount;
+      } else {
+        catSummary[e.cat] = (catSummary[e.cat]||0) + e.amount;
+        monthExpense += e.amount;
+        expenseTotal += e.amount;
+      }
+    });
+    incomeTotal += (fin.incomeActual||0);
+    // 月结金币 = 实际工资 - 超前 - 普通消费（goldOverride 优先）
+    let gold;
+    if(fin.goldOverride !== null && fin.goldOverride !== undefined) gold = fin.goldOverride;
+    else gold = (fin.incomeActual||0) - monthAdvance - monthExpense;
+    savedTotal += gold;
+  }
+
+  // 2. 优先使用年度手动覆盖的金币值（若存在）
+  if(DB.yearGoldOverride && DB.yearGoldOverride[yStr] !== undefined && DB.yearGoldOverride[yStr] !== null){
+    savedTotal = DB.yearGoldOverride[yStr];
+  }
+
+  // 3. 存入封存卷轴
+  DB.archive[yStr] = {
+    year: year,
+    monthCount: monthCount,
+    incomeTotal: incomeTotal,
+    expenseTotal: expenseTotal,
+    savedTotal: savedTotal,
+    advanceTotal: advanceTotal,
+    catSummary: catSummary,
+    archivedAt: new Date().toLocaleString('zh-CN',{hour12:false})
+  };
+
+  // 4. 清除该年 12 个月的明细（不影响其它年份的超前消费）
+  for(let m=1;m<=12;m++){
+    const mk = yStr + '-' + String(m).padStart(2,'0');
+    if(DB.finance[mk]) delete DB.finance[mk];
+  }
+
+  saveDB();
+
+  // 5. 切换到封存卷轴并定位到该年
+  state.archiveScrollYear = year;
+  state.financeView = 'archive';
+  renderFinanceModule(document.getElementById('content'));
+  haptic();
 }
 
 // ===== 财务板块 =====
@@ -2407,22 +2650,27 @@ function renderFinanceReport(year){
   const prevFin = analyzeYearFinance(year-1);
   const plan = DB.yearlyPlans[String(year)] || {};
 
-  // 可选年份列表
+  // 可选年份列表：未归档年份 + 已归档年份（含仅已归档的）
   const dataYears = new Set();
   Object.keys(DB.finance||{}).forEach(mk=>dataYears.add(parseInt(mk.slice(0,4))));
+  Object.keys(DB.archive||{}).forEach(ys=>dataYears.add(parseInt(ys)));
   dataYears.add(new Date().getFullYear());
   const yearOptions = Array.from(dataYears).sort((a,b)=>b-a);
+  const yearOptionHtml = y=>`<option value="${y}" ${y===year?'selected':''}>${DB.archive[String(y)] ? y+'年度' : y+'赛季'}</option>`;
 
   if(!fin.hasData){
     return `
       <div class="card" style="padding:12px;margin-top:8px;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
           <div style="font-size:15px;font-weight:600;">📊 经济战报</div>
-          <select class="sheet-input" style="width:80px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveYear=parseInt(this.value);renderMoney(document.getElementById('content'))">
-            ${yearOptions.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}赛季</option>`).join('')}
-          </select>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <select class="sheet-input" style="width:84px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveYear=parseInt(this.value);renderMoney(document.getElementById('content'))">
+              ${yearOptions.map(yearOptionHtml).join('')}
+            </select>
+            ${!DB.archive[String(year)] ? `<button style="height:30px;padding:0 12px;font-size:12px;font-weight:600;border:none;border-radius:8px;background:linear-gradient(135deg,#FF9500,#FF3B30);color:#fff;cursor:pointer;" onclick="confirmArchiveYear(${year})">📜 封存</button>` : '<span style="font-size:11px;color:var(--label-3);">已封存</span>'}
+          </div>
         </div>
-        <div style="text-align:center;padding:16px;color:var(--label-3);font-size:14px;">${year}赛季暂无财务数据</div>
+        <div style="text-align:center;padding:16px;color:var(--label-3);font-size:14px;">${year}赛季暂无财务数据${DB.archive[String(year)]?'（已归档，可在封存卷轴查看）':''}</div>
       </div>
     `;
   }
@@ -2452,11 +2700,14 @@ function renderFinanceReport(year){
 
   return `
     <div class="card" style="padding:12px;margin-top:8px;margin-bottom:8px;border:1px solid var(--separator);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;">
         <div style="font-size:16px;font-weight:700;">📊 经济战报</div>
-        <select class="sheet-input" style="width:80px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveYear=parseInt(this.value);renderMoney(document.getElementById('content'))">
-          ${yearOptions.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}赛季</option>`).join('')}
-        </select>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <select class="sheet-input" style="width:84px;height:30px;padding:0 6px;font-size:13px;" onchange="state.archiveYear=parseInt(this.value);renderMoney(document.getElementById('content'))">
+            ${yearOptions.map(yearOptionHtml).join('')}
+          </select>
+          ${!DB.archive[String(year)] ? `<button style="height:30px;padding:0 12px;font-size:12px;font-weight:600;border:none;border-radius:8px;background:linear-gradient(135deg,#FF9500,#FF3B30);color:#fff;cursor:pointer;" onclick="confirmArchiveYear(${year})">📜 封存</button>` : '<span style="font-size:11px;color:var(--label-3);">已封存</span>'}
+        </div>
       </div>
 
       <!-- 板块1: 预言vs现实 -->
