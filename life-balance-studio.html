@@ -1563,20 +1563,14 @@ function getTreasureTotal(){
   return (DB.treasure.seedFund||0) + (DB.treasure.baseFund||0);
 }
 
-// ===== 战利品同步: 月结金币 -> 宝箱底金 =====
+// ===== 战利品同步: 仅更新本月战利品显示值, 不再自动累加底金 =====
+// 历史教训: 自动跨月累加会在滑动/切月时误触发, 导致底金异常膨胀。
+// 现改为底金完全由用户手动编辑维护, 任何切月/滑动都不会改变底金。
 function syncLootToBase(){
-  const ym = state.currentMonth;
-  const fin = calcMonthFinance(ym);
-  const goldActual = fin.goldActual;
-  if(DB.treasure.lootMonth !== ym){
-    if(DB.treasure.monthlyLoot > 0 && DB.treasure.lootMonth){
-      DB.treasure.baseFund += DB.treasure.monthlyLoot;
-    }
-    DB.treasure.monthlyLoot = goldActual;
-    DB.treasure.lootMonth = ym;
-  } else {
-    DB.treasure.monthlyLoot = goldActual;
-  }
+  const realYM = todayStr().slice(0,7); // 真实当前月份
+  const fin = calcMonthFinance(realYM);
+  DB.treasure.monthlyLoot = fin.goldActual; // 仅更新"本月战利品"显示
+  DB.treasure.lootMonth = realYM;
   return DB.treasure.monthlyLoot;
 }
 
@@ -2897,7 +2891,7 @@ function renderYearCompareRow(label, curr, prev, prefix, reverseColor){
 
 // ===== 封印宝箱 =====
 function renderTreasureChest(){
-  syncLootToBase();
+  // 不再这里同步：切换查看月份时不应触发月结累加，只在 renderHome 进入首页时同步真实自然月
   const total = getTreasureTotal();
   const base = DB.treasure.baseFund||0;
   const seed = DB.treasure.seedFund||0;
@@ -2940,12 +2934,14 @@ function editTreasureChest(){
       <button class="sheet-btn sheet-btn-secondary" style="width:100%;" onclick="editTreasureField('seed')">编辑种子基金</button>
       <div style="height:8px;"></div>
       <button class="sheet-btn sheet-btn-secondary" style="width:100%;" onclick="editTreasureField('base')">编辑宝箱底金</button>
+      <div style="height:8px;"></div>
+      <div class="sheet-note" style="font-size:12px;color:#FF9500;background:rgba(255,149,0,.1);padding:8px;border-radius:8px;">⚠️ 若宝箱底金曾被滑动异常累加，点上方「编辑宝箱底金」手动改回正确数值即可（保存后不会再被自动累加）。</div>
     </div>
     <div class="sheet-field" style="text-align:center;padding:8px 0;border-top:1px solid var(--bg);">
       <div class="sheet-label">本月战利品（月结金币）</div>
       <div style="font-size:24px;font-weight:700;color:#FFD700;margin:8px 0;">¥ ${fmtMoney(DB.treasure.monthlyLoot||0)}</div>
       <button class="sheet-btn sheet-btn-secondary" style="width:100%;" onclick="editTreasureField('loot')">编辑战利品</button>
-      <div style="font-size:12px;color:var(--label-3);margin-top:6px;">战利品在月结时自动累加到宝箱底金</div>
+      <div style="font-size:12px;color:var(--label-3);margin-top:6px;">战利品不再自动累加到底金，底金请点上方「编辑宝箱底金」手动维护</div>
     </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">关闭</button>
