@@ -3109,8 +3109,11 @@ function openAddExpenseItem(){
   const m = DB.finance[state.currentMonth];
   if(!m){ toast('请先切换到有效月份'); return; }
   const defaultCats = ['饮食吃喝','交通出行','购物买买买','娱乐休闲','医疗健康','衣服服饰','宠物','给自己的奖励','其他'];
-  // 合并已有分类（普通消费，不含超前消费）
-  const existingCats = [...new Set([...(m.expenses||[]).filter(e=>!e.isAdvance).map(e=>e.cat)])];
+  // 合并已有分类：plan 中保留的分类 + 普通消费记录里用过的分类（不含超前消费）
+  const existingCats = [...new Set([
+    ...Object.keys(m.plan || {}),
+    ...(m.expenses||[]).filter(e=>!e.isAdvance).map(e=>e.cat)
+  ])];
   // 有已有分类时，只显示已有分类；没有时才用默认分类
   const allCats = existingCats.length ? existingCats : defaultCats;
   openSheet(`
