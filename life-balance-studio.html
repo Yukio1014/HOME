@@ -1523,6 +1523,10 @@ function onDecisionsChange(fn){ state.listeners.decisions.push(fn); }
 function emitDecisions(){ state.listeners.decisions.forEach(f=>f()); }
 
 // ===== 计算工具 =====
+// 额外收入（奖金/外快）合计：逐条自由命名，兼容旧数据无 bonuses 字段
+function getBonusTotal(m){
+  return (m && m.bonuses || []).reduce((s,b)=>s+((b.amount||0)),0);
+}
 function calcMonthFinance(monthKey){
   const m = DB.finance[monthKey];
   if(!m) return {expenseTotal:0,normalExpense:0,balance:0,catSummary:{},advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,plan:{},catMeta:{},budget:0};
@@ -1542,15 +1546,18 @@ function calcMonthFinance(monthKey){
     }
   });
   const expenseTotal = normalExpense;
-  // 月结金币 = 工资 - 超前消费 - 普通消费
+  // 额外收入（奖金/外快）：计入实际收入
+  const bonusTotal = getBonusTotal(m);
+  // 月结金币 = (工资 + 额外收入) - 超前消费 - 普通消费
   const goldPlanned = (m.incomePlanned||0) - advanceTotal - (m.budget||0);
-  const goldActual = (m.incomeActual||0) - advanceTotal - normalExpense;
+  const goldActual = (m.incomeActual||0) + bonusTotal - advanceTotal - normalExpense;
   const goldOverride = m.goldOverride;
   const goldFinal = goldOverride !== null ? goldOverride : goldActual;
   const balance = goldFinal;
   return {
     expenseTotal, normalExpense, balance, catSummary,
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
+    bonusTotal, incomeWithBonus:(m.incomeActual||0)+bonusTotal,
     advanceTotal, advanceCount, advanceCats,
     plan:m.plan, catMeta:m.catMeta||{},
     budget:m.budget||0,
@@ -1828,7 +1835,7 @@ function analyzeYearFinance(year){
   const yStr = String(year);
   const months = [];
   const catTotals = {};
-  let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0;
+  let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0, totalBonus = 0;
   let planAccuracySum = 0, planAccuracyCount = 0;
   let totalAdvance = 0, advanceCount = 0;
   const advanceByMonth = [];
@@ -1854,13 +1861,15 @@ function analyzeYearFinance(year){
     advanceByMonth.push({month:m, advance:monthAdvance, count:monthAdvanceCount});
 
     const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0);
-    const monthIncome = (fin.incomeActual||0);
+    const monthBonus = getBonusTotal(fin);
+    const monthIncome = (fin.incomeActual||0) + monthBonus;
     // 预计金币 = 预计工资 - 超前消费 - 预算
     const goldPlanned = (fin.incomePlanned||0) - monthAdvance - (fin.budget||0);
-    // 实际金币 = 实际工资 - 超前消费 - 普通消费
+    // 实际金币 = 实际工资+额外收入 - 超前消费 - 普通消费
     const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthAdvance - monthExpense);
 
     totalIncome += monthIncome;
+    totalBonus += monthBonus;
     totalExpense += monthExpense;
     totalGoldPlanned += goldPlanned;
     totalGoldActual += goldActual;
@@ -1890,7 +1899,7 @@ function analyzeYearFinance(year){
   const totalCatSpend = catList.reduce((s,[,v])=>s+v,0);
 
   return {
-    months, totalIncome, totalExpense, totalGoldPlanned, totalGoldActual,
+    months, totalIncome, totalExpense, totalGoldPlanned, totalGoldActual, totalBonus,
     topCat: topCat[0], topCatAmount: topCat[1],
     accuracy, catList, totalCatSpend,
     totalAdvance, advanceCount, advanceByMonth,
@@ -2329,9 +2338,16 @@ function renderArchiveModule(){
 
       <!-- 总产出 -->
       <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;padding:14px;margin-bottom:8px;color:#fff;">
-        <div style="font-size:12px;color:rgba(255,255,255,.75);">总产出（全年工资）</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.75);">总产出（全年收入）</div>
         <div style="font-size:28px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.incomeTotal||0)}</div>
       </div>
+
+      <!-- 全年额外收入（奖金/外快） -->
+      ${arc.bonusTotal>0 ? `
+      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:14px;margin-bottom:8px;color:#7A4A00;">
+        <div style="font-size:12px;color:rgba(122,74,0,.85);">💰 全年额外收入（奖金/外快）</div>
+        <div style="font-size:24px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.bonusTotal)}</div>
+      </div>` : ''}
 
       <!-- 总消耗 + 宝箱填充量 -->
       <div style="display:flex;gap:8px;margin-bottom:8px;">
@@ -2461,7 +2477,7 @@ function archiveYear(year){
   const yStr = String(year);
   // 1. 汇总该年 12 个月
   const catSummary = {};
-  let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0;
+  let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0, bonusTotal = 0;
   let monthCount = 0;
   for(let m=1;m<=12;m++){
     const mk = yStr + '-' + String(m).padStart(2,'0');
@@ -2479,11 +2495,13 @@ function archiveYear(year){
         expenseTotal += e.amount;
       }
     });
-    incomeTotal += (fin.incomeActual||0);
-    // 月结金币 = 实际工资 - 超前 - 普通消费（goldOverride 优先）
+    const monthBonus = getBonusTotal(fin);
+    incomeTotal += (fin.incomeActual||0) + monthBonus;
+    bonusTotal += monthBonus;
+    // 月结金币 = (实际工资+额外收入) - 超前 - 普通消费（goldOverride 优先）
     let gold;
     if(fin.goldOverride !== null && fin.goldOverride !== undefined) gold = fin.goldOverride;
-    else gold = (fin.incomeActual||0) - monthAdvance - monthExpense;
+    else gold = (fin.incomeActual||0) + monthBonus - monthAdvance - monthExpense;
     savedTotal += gold;
   }
 
@@ -2497,6 +2515,7 @@ function archiveYear(year){
     year: year,
     monthCount: monthCount,
     incomeTotal: incomeTotal,
+    bonusTotal: bonusTotal,
     expenseTotal: expenseTotal,
     savedTotal: savedTotal,
     advanceTotal: advanceTotal,
@@ -2568,7 +2587,7 @@ function renderMoney(c){
         </div>
         ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;margin-top:6px;">⚠️ 已手动覆盖</div>' : ''}
         <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);">
-          = 工资 ¥${fmtMoney(fin.incomeActual)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(actualTotal)}
+          = 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外收入 ¥${fmtMoney(fin.bonusTotal||0)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(actualTotal)}
         </div>
       </div>
 
@@ -2582,6 +2601,27 @@ function renderMoney(c){
           <span style="flex:1;font-size:13px;color:var(--label-2);">报酬</span>
           <span style="width:80px;text-align:right;font-size:13px;color:var(--label-3);">预计 ¥${fmtMoney(fin.incomePlanned)}</span>
           <span style="width:80px;text-align:right;font-size:14px;font-weight:600;color:var(--blue);">¥${fmtMoney(fin.incomeActual)}</span>
+        </div>
+      </div>
+
+      <!-- 额外收入（奖金/外快）：橙色高亮板块，ADHD 友好 -->
+      <div style="padding:12px 14px;border-bottom:.5px solid var(--separator);background:linear-gradient(135deg,#FFF4E0,#FFE9C7);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:14px;font-weight:700;color:#B26A00;">💰 额外收入</span>
+          <button class="edit-btn" style="color:#E8820C;font-weight:600;" onclick="openAddBonus()">＋ 添加额外收入</button>
+        </div>
+        ${(monthData.bonuses||[]).length ? (monthData.bonuses||[]).map(b=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px dashed rgba(178,106,0,.25);" onclick="delBonus('${b.id}')">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;color:#7A4A00;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.name||'未命名'}</div>
+              ${b.note?`<div style="font-size:11px;color:#B26A00;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.note}</div>`:''}
+            </div>
+            <div style="font-size:14px;font-weight:700;color:#E8820C;margin-left:8px;">¥${fmtMoney(b.amount)}</div>
+          </div>
+        `).join('') : '<div style="font-size:12px;color:#B26A00;opacity:.75;padding:2px 0;">暂无额外收入，点右上角添加</div>'}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid rgba(178,106,0,.3);">
+          <span style="font-size:13px;color:#7A4A00;font-weight:600;">小计</span>
+          <span style="font-size:15px;font-weight:700;color:#E8820C;">¥${fmtMoney(fin.bonusTotal||0)}</span>
         </div>
       </div>
 
@@ -2746,6 +2786,16 @@ function renderFinanceReport(year){
         </div>
       </div>
 
+      <!-- 全年额外收入（奖金/外快）橙色卡片 -->
+      ${fin.totalBonus>0 ? `
+      <div style="background:linear-gradient(135deg,#FFF4E0,#FFE9C7);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:14px;font-weight:700;color:#B26A00;">💰 全年额外收入（奖金/外快）</span>
+          <span style="font-size:20px;font-weight:800;color:#E8820C;">¥${fmtMoney(fin.totalBonus)}</span>
+        </div>
+        ${fin.totalIncome>0 ? `<div style="font-size:11px;color:#B26A00;opacity:.85;margin-top:4px;">占全年总产出的 ${Math.round(fin.totalBonus/fin.totalIncome*100)}%</div>` : ''}
+      </div>` : ''}
+
       <!-- 板块2: 资源消耗TOP榜 -->
       <div style="background:linear-gradient(135deg,#ff950022,#ff3b3022);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff950022;">
         <div style="font-size:14px;font-weight:700;color:#CC5500;margin-bottom:8px;">🔥 资源消耗TOP榜</div>
@@ -2811,6 +2861,7 @@ function renderFinanceReport(year){
         ` : `
           ${renderYearCompareRow('宝箱实际填充量', gold, prevGold, '¥')}
           ${renderYearCompareRow('总产出', fin.totalIncome, prevFin.totalIncome, '¥')}
+          ${renderYearCompareRow('额外收入', fin.totalBonus||0, prevFin.totalBonus||0, '¥')}
           ${renderYearCompareRow('总消耗', fin.totalExpense, prevFin.totalExpense, '¥', true)}
           ${renderYearCompareRow('越界交易', fin.totalAdvance, prevFin.totalAdvance, '¥', true)}
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(0,188,212,.1);border-radius:8px;margin-top:4px;">
@@ -3416,6 +3467,60 @@ function saveIncome(){
   renderMoney(document.getElementById('content'));
   emitSaved();
   toast('报酬已更新');
+}
+
+// 额外收入（奖金/外快）：逐条录入，自由命名
+function openAddBonus(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m){ toast('请先切换到有效月份'); return; }
+  openSheet(`
+    <div class="sheet-title">添加额外收入</div>
+    <div class="sheet-field">
+      <div class="sheet-label">名称（自由填写，如：年终奖 / 闲鱼 / 报销利息）</div>
+      <input class="sheet-input" id="bonusName" placeholder="例如：年终奖">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">金额</div>
+      <input class="sheet-input" id="bonusAmount" type="number" placeholder="0">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">备注（选填）</div>
+      <input class="sheet-input" id="bonusNote" placeholder="可不填">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveBonus()">保存</button>
+    </div>
+  `);
+}
+function saveBonus(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  const amount = parseFloat(document.getElementById('bonusAmount').value)||0;
+  if(!amount){ toast('请输入金额'); return; }
+  const name = document.getElementById('bonusName').value.trim();
+  if(!m.bonuses) m.bonuses = [];
+  m.bonuses.push({id:'b'+Date.now(), name:name||'未命名', amount, note:(document.getElementById('bonusNote').value||'').trim()});
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  emitSaved();
+  toast('已添加额外收入 ¥'+fmtMoney(amount));
+}
+function delBonus(id){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.bonuses) return;
+  const item = m.bonuses.find(b=>b.id===id);
+  if(!item) return;
+  if(!confirm('确定删除这笔额外收入？\n「'+(item.name||'未命名')+'」 ¥'+fmtMoney(item.amount))) return;
+  m.bonuses = m.bonuses.filter(b=>b.id!==id);
+  saveDB();
+  renderMoney(document.getElementById('content'));
+  emitSaved();
+  toast('已删除');
 }
 
 // 月结金币手动覆盖
