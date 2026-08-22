@@ -2648,6 +2648,14 @@ function renderMoney(c){
           <button class="edit-btn" style="color:var(--red);" onclick="openAddExpenseItem()">＋录入消费</button>
         </div>
         ${getExpenseRows(fin, monthData)}
+        <!-- 宝藏流失 小条：超前消费 + 普通消费 实时合计 -->
+        <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:linear-gradient(135deg,#FFE5E5,#FFD6D6);border:1px solid #FFB3B3;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#C0392B;">💸 宝藏流失</div>
+            <div style="font-size:10px;color:#C0392B;opacity:.85;margin-top:2px;">= 超前消费 ¥${fmtMoney(fin.advanceTotal)} ＋ 普通消费 ¥${fmtMoney(fin.normalExpense)}</div>
+          </div>
+          <div style="font-size:20px;font-weight:800;color:#C0392B;">¥${fmtMoney((fin.advanceTotal||0)+(fin.normalExpense||0))}</div>
+        </div>
       </div>
     </div>
 
