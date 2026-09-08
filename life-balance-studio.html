@@ -925,7 +925,6 @@ const DB = {
     inspires:[],
     monthStats:{books:0,englishHours:0,inspires:0},
     taskCats:['英语','阅读','运动','技能','其他'],
-    bookCats:['成长','理财','心理','小说','技能','健康','其他'],
     bookshelf:[],
     studySessions:[],
     timerActive:false,
@@ -1498,8 +1497,6 @@ const state = {
   multiTaskDates: new Set(),
   // 书架状态（局部刷新时保留）
   bookSearch: '',   // 当前搜索关键词
-  bookCat: '',      // 当前分类筛选：''=全部
-  bookSub: 'reading', // 书架收起的分组？(保留字段，当前未用)
 
   listeners: {saved:[],tasks:[],decisions:[]},
 };
@@ -3717,7 +3714,6 @@ function renderStudy(c){
         </div>
       </div>
       <input class="sheet-input" id="bookSearchInput" placeholder="搜索书名或作者…" style="height:36px;padding:0 10px;font-size:14px;margin-bottom:8px;" oninput="filterBooks(this.value)">
-      <div id="bookCatBar">${bookCatBarHTML()}</div>
     </div>
     <div id="bookshelf">${shelfBooksHTML()}</div>
     <div style="height:20px;"></div>
@@ -3729,10 +3725,10 @@ function focusBookSearch(){
   if(inp) inp.focus();
 }
 
-// ===== 书架：阅读状态分组 + 分类筛选 + 局部刷新 =====
+// ===== 书架：按阅读状态自动分三组 + 局部刷新 =====
 const BOOK_GROUPS = [
   { key:'reading', label:'正在阅读', color:'#007AFF', bg:'#007AFF', emoji:'📖' },
-  { key:'todo',    label:'未开始',   color:'#8E8E93', bg:'#8E8E93', emoji:'📦' },
+  { key:'todo',    label:'未读',     color:'#8E8E93', bg:'#8E8E93', emoji:'📦' },
   { key:'done',    label:'已读完',   color:'#34C759', bg:'#34C759', emoji:'🎉' },
 ];
 // 书的阅读状态
@@ -3743,39 +3739,15 @@ function bookStatus(b){
   if(cur>0) return 'reading';
   return 'todo';
 }
-function bookCatsAll(){ return DB.study.bookCats || ['成长','理财','心理','小说','技能','健康','其他']; }
-function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// 分类筛选标签行
-function bookCatBarHTML(){
-  const cats = bookCatsAll();
-  const all = ['全部', ...cats];
-  return `<div style="display:flex;gap:6px;flex-wrap:wrap;">
-    ${all.map(c=>{
-      const v = (c==='全部'?'':c);
-      const on = state.bookCat===v;
-      return `<span onclick="setBookCat('${v==="'"?"\\'":esc(v)}')" style="padding:4px 10px;border-radius:14px;font-size:12px;cursor:pointer;user-select:none;background:${on?'var(--blue)':'var(--bg)'};color:${on?'#fff':'var(--label-2)'};font-weight:${on?'600':'400'};">${esc(c)}</span>`;
-    }).join('')}
-  </div>`;
-}
-function setBookCat(v){
-  haptic();
-  state.bookCat = v||'';
-  const bar = document.getElementById('bookCatBar');
-  if(bar) bar.innerHTML = bookCatBarHTML();
-  renderShelfList();
-}
-
-// 书架整体渲染（含分组标题 + 卡片），读取 state.bookCat 过滤分类
+// 书架整体渲染（按阅读状态自动分三组 + 卡片）
 function shelfBooksHTML(){
   const books = DB.study.bookshelf||[];
   if(!books.length){
     return '<div class="empty-state"><div class="empty-state-icon">📚</div><div class="empty-state-text">书架空空如也，点击右上方 ⏫ 添加第一本书</div></div>';
   }
-  const cat = state.bookCat||'';
   const groups = BOOK_GROUPS.map(g=>({ ...g, list:[] }));
   books.forEach(b=>{
-    if(cat && (b.cat||'其他')!==cat) return;
     const st = bookStatus(b);
     const g = groups.find(x=>x.key===st);
     if(g) g.list.push(b);
@@ -3787,11 +3759,6 @@ function shelfBooksHTML(){
       return (tb-ta);
     });
   });
-  // 页面是否还有任何书可显示（无论分组）
-  const anyBook = books.some(b=> !cat || (b.cat||'其他')===cat);
-  if(!anyBook){
-    return `<div class="empty-state"><div class="empty-state-icon">🗂</div><div class="empty-state-text">该分类下还没有书</div></div>`;
-  }
   let html = '';
   groups.forEach(g=>{
     if(!g.list.length) return;
@@ -3816,20 +3783,18 @@ function bookCardHTML(b){
   const inspCount = (b.inspirations||[]).length;
   const st = bookStatus(b);
   const done = st==='done';
-  const cat = b.cat||'其他';
   return `
-    <div class="card book-card" style="margin-bottom:8px;" data-search="${(b.title+' '+(b.author||'')+' '+(b.cat||'')).toLowerCase()}">
+    <div class="card book-card" style="margin-bottom:8px;" data-search="${(b.title+' '+(b.author||'')).toLowerCase()}">
       <div style="display:flex;align-items:flex-start;gap:10px;">
         <div class="book-spine" style="background:${b.color||'#5AC8FA'};">📖</div>
         <div style="flex:1;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div style="flex:1;">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                <span style="font-size:15px;font-weight:600;">${esc(b.title)}</span>
-                ${cat?`<span style="font-size:10px;color:var(--blue);background:rgba(0,122,255,.1);padding:1px 7px;border-radius:8px;">${esc(cat)}</span>`:''}
+                <span style="font-size:15px;font-weight:600;">${b.title}</span>
                 ${done?'<span style="font-size:10px;color:var(--green);background:rgba(52,199,89,.12);padding:1px 7px;border-radius:8px;">已完成</span>':''}
               </div>
-              <div style="font-size:12px;color:var(--label-3);">${esc(b.author)||'未知作者'}</div>
+              <div style="font-size:12px;color:var(--label-3);">${b.author||'未知作者'}</div>
             </div>
             <div style="display:flex;gap:4px;flex-shrink:0;">
               <button class="cmp-pair-edit" style="width:26px;height:26px;font-size:12px;" onclick="editBook('${b.id}')">✏</button>
@@ -3857,7 +3822,7 @@ function bookCardHTML(b){
     </div>`;
 }
 
-// 局部刷新书架：只重建 #bookshelf，保留搜索框/分类标签/滚动位置
+// 局部刷新书架：只重建 #bookshelf，保留搜索框/滚动位置
 function renderShelfList(){
   const shelf = document.getElementById('bookshelf');
   if(!shelf) return;
@@ -4121,11 +4086,6 @@ function openAddBook(){
       <input class="sheet-input" id="bkCurrent" type="number" placeholder="如：0" value="0">
     </div>
     <div class="sheet-field">
-      <div class="sheet-label">分类</div>
-      <div class="cat-select" id="bkCatPick" style="display:flex;flex-wrap:wrap;gap:6px;">${bookCatPickerHTML('其他', 'bkCat')}</div>
-      <input type="hidden" id="bkCat" value="其他">
-    </div>
-    <div class="sheet-field">
       <div class="sheet-label">书脊颜色</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${colors.map((c,i)=>`<div class="color-pick ${i===0?'selected':''}" style="width:32px;height:32px;border-radius:8px;background:${c};cursor:pointer;border:3px solid ${i===0?'var(--label-1)':'transparent'};" onclick="this.parentElement.querySelectorAll('.color-pick').forEach(o=>o.style.border='3px solid transparent');this.style.border='3px solid var(--label-1)';document.getElementById('bkColor').value='${c}';"></div>`).join('')}
@@ -4139,29 +4099,12 @@ function openAddBook(){
   `);
 }
 
-// 书分类单选chip
-function bookCatPickerHTML(selected, hid){
-  const cats = bookCatsAll();
-  return cats.map((c,i)=>{
-    const on = (c===selected);
-    return `<span data-cat="${esc(c)}" onclick="pickBookCat(this,'${hid}')" style="padding:5px 12px;border-radius:8px;font-size:13px;cursor:pointer;background:${on?'var(--blue)':'var(--bg)'};color:${on?'#fff':'var(--label-2)'};font-weight:${on?'600':'400'};">${esc(c)}</span>`;
-  }).join('');
-}
-function pickBookCat(el, hid){
-  haptic();
-  el.parentElement.querySelectorAll('[data-cat]').forEach(o=>{ o.style.background='var(--bg)'; o.style.color='var(--label-2)'; o.style.fontWeight='400'; });
-  el.style.background='var(--blue)'; el.style.color='#fff'; el.style.fontWeight='600';
-  const h = document.getElementById(hid);
-  if(h) h.value = el.getAttribute('data-cat');
-}
-
 function confirmAddBook(){
   const title = document.getElementById('bkTitle').value.trim();
   const author = document.getElementById('bkAuthor').value.trim();
   const total = parseInt(document.getElementById('bkTotal').value)||0;
   const current = parseInt(document.getElementById('bkCurrent').value)||0;
   const color = document.getElementById('bkColor').value;
-  const cat = (document.getElementById('bkCat').value)||'其他';
   if(!title){ toast('请输入书名'); return; }
   if(!total || total<1){ toast('请输入总页数'); return; }
   haptic();
@@ -4172,7 +4115,6 @@ function confirmAddBook(){
     totalPages: total,
     currentPage: Math.min(current, total),
     color,
-    cat,
     monthRead: {},
     createdAt: Date.now(),
     lastActive: Date.now()
@@ -4232,11 +4174,6 @@ function editBook(id){
       <input class="sheet-input" id="bkCurrent" type="number" value="${b.currentPage}">
     </div>
     <div class="sheet-field">
-      <div class="sheet-label">分类</div>
-      <div class="cat-select" id="bkCatPick" style="display:flex;flex-wrap:wrap;gap:6px;">${bookCatPickerHTML(b.cat||'其他', 'bkCat')}</div>
-      <input type="hidden" id="bkCat" value="${b.cat||'其他'}">
-    </div>
-    <div class="sheet-field">
       <div class="sheet-label">书脊颜色</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${colors.map(c=>`<div class="color-pick" style="width:32px;height:32px;border-radius:8px;background:${c};cursor:pointer;border:3px solid ${c===b.color?'var(--label-1)':'transparent'};" onclick="this.parentElement.querySelectorAll('.color-pick').forEach(o=>o.style.border='3px solid transparent');this.style.border='3px solid var(--label-1)';document.getElementById('bkColor').value='${c}';"></div>`).join('')}
@@ -4256,7 +4193,6 @@ function saveBookEdit(id){
   const total = parseInt(document.getElementById('bkTotal').value)||0;
   const current = parseInt(document.getElementById('bkCurrent').value)||0;
   const color = document.getElementById('bkColor').value;
-  const cat = (document.getElementById('bkCat').value)||'其他';
   if(!title){ toast('请输入书名'); return; }
   haptic();
   const b = (DB.study.bookshelf||[]).find(x=>x.id===id);
@@ -4267,7 +4203,6 @@ function saveBookEdit(id){
   b.totalPages = total;
   b.currentPage = Math.min(current, total);
   b.color = color;
-  b.cat = cat;
   if(b.currentPage !== oldPage){
     const ym = new Date().toISOString().slice(0,7);
     if(!b.monthRead) b.monthRead = {};
