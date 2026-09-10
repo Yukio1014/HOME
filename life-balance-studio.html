@@ -1622,6 +1622,13 @@ function calcMonthFinance(monthKey){
   let advanceTotal = 0, advanceCount = 0, normalExpense = 0;
   (m.expenses||[]).forEach(e=>{
     const k = catKeyOf(e);
+    // 消费动机（选填）：普通消费 + 超前消费 都统计（超前消费也是「为什么花」）
+    if(e.motive){
+      const mn = motiveName(e.motive) || (''+e.motive);
+      const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
+      motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
+      motiveTotal += e.amount;
+    }
     if(e.isAdvance){
       // 超前消费：单独统计，从收入直接扣除
       advanceTotal += e.amount;
@@ -1635,13 +1642,6 @@ function calcMonthFinance(monthKey){
       if(isClassified(e) && e.sub){
         const sk = k + '|' + e.sub;
         subSummary[sk] = (subSummary[sk]||0) + e.amount;
-      }
-      // 消费动机（选填）
-      if(e.motive){
-        const mn = motiveName(e.motive) || (''+e.motive);
-        const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
-        motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
-        motiveTotal += e.amount;
       }
     }
   });
@@ -1986,14 +1986,15 @@ function analyzeYearFinance(year){
         const k = catKeyOf(e);
         monthCats[k] = (monthCats[k]||0) + e.amount;
         catTotals[k] = (catTotals[k]||0) + e.amount;
-        // 消费动机（选填）
-        if(e.motive){
-          const mn = motiveName(e.motive) || (''+e.motive);
-          const mk3 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
-          motiveTotals[mk3] = (motiveTotals[mk3]||0) + e.amount;
-          motiveTotal += e.amount;
-        }
       }
+    });
+    // 消费动机（选填）：普通 + 超前 都统计
+    (fin.expenses||[]).forEach(e=>{
+      if(!e.motive) return;
+      const mn = motiveName(e.motive) || (''+e.motive);
+      const mk3 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
+      motiveTotals[mk3] = (motiveTotals[mk3]||0) + e.amount;
+      motiveTotal += e.amount;
     });
     totalAdvance += monthAdvance;
     advanceCount += monthAdvanceCount;
@@ -2562,7 +2563,7 @@ function renderArchiveModule(){
             </div>
           </div>`;
         }).join('')}
-        <div style="font-size:11px;color:rgba(122,74,0,.7);margin-top:4px;">已归因 ¥${fmtMoney(motTotal)} / 全年消费 ¥${fmtMoney(catTotal)}${catTotal>0?'（'+Math.round(motTotal/catTotal*100)+'%）':''} · 动机为选填项</div>
+        <div style="font-size:11px;color:rgba(122,74,0,.7);margin-top:4px;">已归因 ¥${fmtMoney(motTotal)} / 总花费 ¥${fmtMoney(catTotal + (arc.advanceTotal||0))}${(catTotal + (arc.advanceTotal||0))>0?'（'+Math.round(motTotal/(catTotal + (arc.advanceTotal||0))*100)+'%，含越界）':''} · 动机为选填项</div>
       </div>` : ''}
 
       <!-- AI 静态分析 -->
@@ -2687,6 +2688,13 @@ function archiveYear(year){
     monthCount++;
     let monthAdvance = 0, monthExpense = 0;
     (fin.expenses||[]).forEach(e=>{
+      // 消费动机（选填）：普通 + 超前 都统计
+      if(e.motive){
+        const mn = motiveName(e.motive) || (''+e.motive);
+        const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
+        motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
+        motiveTotal += e.amount;
+      }
       if(e.isAdvance){
         monthAdvance += e.amount;
         advanceTotal += e.amount;
@@ -2699,13 +2707,6 @@ function archiveYear(year){
         if(isClassified(e) && e.sub){
           const sk = k + '|' + e.sub;
           subSummary[sk] = (subSummary[sk]||0) + e.amount;
-        }
-        // 消费动机（选填）
-        if(e.motive){
-          const mn = motiveName(e.motive) || (''+e.motive);
-          const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
-          motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
-          motiveTotal += e.amount;
         }
       }
     });
@@ -3051,7 +3052,7 @@ function renderFinanceReport(year){
       <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
           <div style="font-size:14px;font-weight:700;color:#7A4A00;">💡 为什么花 · 消费动机</div>
-          <div style="font-size:11px;color:rgba(122,74,0,.75);">已归因 ¥${fmtMoney(fin.motiveTotal||0)} · 占全年消费 ${(fin.totalExpense||0)>0?Math.round((fin.motiveTotal||0)/fin.totalExpense*100):0}%</div>
+          <div style="font-size:11px;color:rgba(122,74,0,.75);">已归因 ¥${fmtMoney(fin.motiveTotal||0)} · 占总花费 ${((fin.totalExpense||0)+(fin.totalAdvance||0))>0?Math.round((fin.motiveTotal||0)/((fin.totalExpense||0)+(fin.totalAdvance||0))*100):0}%${(fin.totalAdvance||0)>0?'（含越界）':''}</div>
         </div>
         ${fin.motiveList.map(([mn,mv])=>{
           const pct = (fin.motiveTotal||0)>0 ? Math.round(mv/fin.motiveTotal*100) : 0;
@@ -3366,7 +3367,7 @@ function getExpenseRows(fin, monthData){
     html += `<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--separator);">
       <div onclick="toggleMotive()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:2px 0;">
         <span style="font-size:13px;font-weight:600;">💡 为什么花（动机）</span>
-        <span style="font-size:11px;color:var(--label-3);">已归因 ¥${fmtMoney(motTotal)} · ${(fin.normalExpense||0)>0?Math.round(motTotal/fin.normalExpense*100):0}% ${open?'▾':'▸'}</span>
+        <span style="font-size:11px;color:var(--label-3);">已归因 ¥${fmtMoney(motTotal)} · 占总花费 ${((fin.normalExpense||0)+(fin.advanceTotal||0))>0?Math.round(motTotal/((fin.normalExpense||0)+(fin.advanceTotal||0))*100):0}%${(fin.advanceTotal||0)>0?'（含越界）':''} ${open?'▾':'▸'}</span>
       </div>
       ${open ? motEnt.map(([mn,mv])=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">
