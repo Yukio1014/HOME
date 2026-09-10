@@ -1964,6 +1964,8 @@ function analyzeYearFinance(year){
   const yStr = String(year);
   const months = [];
   const catTotals = {};
+  const motiveTotals = {};   // 全年消费动机汇总（选填）
+  let motiveTotal = 0;       // 已归因金额
   let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0, totalBonus = 0;
   let planAccuracySum = 0, planAccuracyCount = 0;
   let totalAdvance = 0, advanceCount = 0;
@@ -1984,6 +1986,13 @@ function analyzeYearFinance(year){
         const k = catKeyOf(e);
         monthCats[k] = (monthCats[k]||0) + e.amount;
         catTotals[k] = (catTotals[k]||0) + e.amount;
+        // 消费动机（选填）
+        if(e.motive){
+          const mn = motiveName(e.motive) || (''+e.motive);
+          const mk3 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
+          motiveTotals[mk3] = (motiveTotals[mk3]||0) + e.amount;
+          motiveTotal += e.amount;
+        }
       }
     });
     totalAdvance += monthAdvance;
@@ -2033,6 +2042,7 @@ function analyzeYearFinance(year){
     months, totalIncome, totalExpense, totalGoldPlanned, totalGoldActual, totalBonus,
     topCat: catKeyLabel(topCat[0]), topCatAmount: topCat[1],
     accuracy, catList, totalCatSpend,
+    motiveList: Object.entries(motiveTotals).sort((a,b)=>b[1]-a[1]), motiveTotal,
     totalAdvance, advanceCount, advanceByMonth,
     hasData: months.length > 0
   };
@@ -3035,6 +3045,27 @@ function renderFinanceReport(year){
           `;
         }).join('')}
       </div>
+
+      <!-- 板块2.5: 为什么花 · 消费动机 -->
+      ${(fin.motiveList||[]).length ? `
+      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+          <div style="font-size:14px;font-weight:700;color:#7A4A00;">💡 为什么花 · 消费动机</div>
+          <div style="font-size:11px;color:rgba(122,74,0,.75);">已归因 ¥${fmtMoney(fin.motiveTotal||0)} · 占全年消费 ${(fin.totalExpense||0)>0?Math.round((fin.motiveTotal||0)/fin.totalExpense*100):0}%</div>
+        </div>
+        ${fin.motiveList.map(([mn,mv])=>{
+          const pct = (fin.motiveTotal||0)>0 ? Math.round(mv/fin.motiveTotal*100) : 0;
+          return `
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <span style="font-size:12px;color:#7A4A00;width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mn}</span>
+              <div style="flex:1;background:rgba(255,255,255,.6);height:8px;border-radius:4px;overflow:hidden;">
+                <div style="background:linear-gradient(90deg,#FF9500,#FF3B30);width:${pct}%;height:100%;border-radius:4px;"></div>
+              </div>
+              <span style="font-size:11px;color:rgba(122,74,0,.8);width:84px;flex-shrink:0;text-align:right;">¥${fmtMoney(mv)} · ${pct}%</span>
+            </div>`;
+        }).join('')}
+        <div style="font-size:10px;color:rgba(122,74,0,.6);margin-top:6px;">动机为选填项，整理旧记录时可在「重新归类」面板顺手补记</div>
+      </div>` : ''}
 
       <!-- 板块3: 越界监控面板 -->
       <div style="background:linear-gradient(135deg,#ff3b3018,#00000018);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff3b3022;">
