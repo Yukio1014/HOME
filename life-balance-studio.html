@@ -3148,7 +3148,7 @@ function openExpenseCatManage(cat){
           <div style="flex:1;min-width:0;">
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
               <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
-              <span style="font-size:11px;color:${e._displayDate===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e._displayDate===tdy?'600':'500'};">${shortDate(e._displayDate)}${e.date?'':'·旧'}</span>
+              <span onclick="editExpenseDate('${e.id}')" style="font-size:11px;color:${e._displayDate===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e._displayDate===tdy?'600':'500'};padding:2px 6px;border-radius:6px;background:${e._displayDate===tdy?'rgba(0,122,255,.08)':'transparent'};cursor:pointer;" title="点击修改日期">${shortDate(e._displayDate)}${e.date?'':'·旧'} <span style="opacity:.5;">📅</span></span>
             </div>
             <input class="sheet-input" id="catNote_${e.id}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注" style="width:140px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
           </div>
@@ -3206,6 +3206,41 @@ function delCatExpenseEntry(id){
   const cat = selectedExpItemCat.replace(/'/g,'').replace(/"/g,'');
   openExpenseCatManage(cat);
   renderMoney(document.getElementById('content'));
+}
+
+// 修改某条明细的日期（内联编辑）
+function editExpenseDate(id){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.expenses) return;
+  const ent = m.expenses.find(x=>x.id===id);
+  if(!ent) return;
+  const cur = ent.date || (state.currentMonth+'-01');
+  // 用 prompt 方式简单输入（与 addExpCat 一致）；用 openSheet 也可以
+  const inp = document.createElement('input');
+  inp.type = 'date';
+  inp.value = cur;
+  inp.style.position='fixed'; inp.style.left='50%'; inp.style.top='40%'; inp.style.transform='translate(-50%,-50%)';
+  inp.style.zIndex='9999'; inp.style.background='#fff'; inp.style.padding='8px';
+  inp.style.border='2px solid #007AFF'; inp.style.borderRadius='8px'; inp.style.fontSize='16px';
+  document.body.appendChild(inp);
+  inp.focus();
+  let done = false;
+  const finish = (val)=>{
+    if(done) return; done = true;
+    inp.remove();
+    if(val && /^\d{4}-\d{2}-\d{2}$/.test(val)){
+      if((ent.date||'') !== val){
+        ent.date = val;
+        saveDB();
+        const cat = selectedExpItemCat.replace(/'/g,'').replace(/"/g,'');
+        openExpenseCatManage(cat);
+        toast('日期已更新');
+      }
+    }
+  };
+  inp.addEventListener('change', ()=> finish(inp.value));
+  inp.addEventListener('blur', ()=> finish(inp.value));
 }
 
 function confirmAddToCat(){
