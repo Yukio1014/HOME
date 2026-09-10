@@ -3301,7 +3301,7 @@ function renderFinanceReport(year){
   if(fogAmount > 0.004) motiveRows.push([FOG_MOTIVE_NAME, fogAmount]);
   const burdenRate = (fin.totalIncome||0)>0 ? Math.round((fin.totalAdvance||0)/fin.totalIncome*100) : 0;
   const avgMonthlyIncome = fin.months.length>0 ? (fin.totalIncome/fin.months.length) : 0;
-  const advMonthsOfIncome = avgMonthlyIncome>0 ? ((fin.totalAdvance||0)/avgMonthlyIncome) : 0;
+  const spendMonthsOfIncome = avgMonthlyIncome>0 ? (totalSpend/avgMonthlyIncome) : 0;
   const maxAdv = Math.max(...(fin.advanceByMonth||[]).map(x=>x.advance), 1);
 
   return `
@@ -3391,7 +3391,7 @@ function renderFinanceReport(year){
       <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
         <div style="margin-bottom:6px;">
           <div style="font-size:14px;font-weight:700;color:#7A4A00;">🔪 欲望解剖台</div>
-          <div style="font-size:10px;color:rgba(122,74,0,.75);margin-top:2px;">总花费 ¥${fmtMoney(totalSpend)}${advMonthsOfIncome>0?' · ≈'+advMonthsOfIncome.toFixed(1)+'个月工资':''}</div>
+          <div style="font-size:10px;color:rgba(122,74,0,.75);margin-top:2px;">总消费 ¥${fmtMoney(totalSpend)}${spendMonthsOfIncome>0?' · ≈'+spendMonthsOfIncome.toFixed(1)+'个月工资':''}</div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(122,74,0,.7);padding:0 0 4px 0;border-bottom:1px solid rgba(122,74,0,.15);margin-bottom:6px;">
           <span style="flex:1;">动机</span>
