@@ -877,6 +877,37 @@ input,textarea{font-family:inherit;}
 
 <script>/* ===== Life Balance Studio · 核心逻辑 ===== */
 
+// ===== 消费大类 + 子分类体系 =====
+// 设计要点：
+// 1. 记录只存 groupId（大类 ID）+ sub（子分类名），不存自由文本 → 根治「交通出行/交通」分裂
+// 2. 大类用 ID 关联，改名不影响已有记录
+// 3. 子分类为空时归父类（不显示「未细分」）
+const DEFAULT_CAT_GROUPS = [
+  {id:'g_food', name:'餐饮食品', icon:'🍜', color:'#FF9500', subs:['早餐','午餐','晚餐','外卖','买菜做饭','零食饮料','水果','聚餐请客','其他']},
+  {id:'g_live', name:'居住',     icon:'🏠', color:'#5E5CE6', subs:['房租','水电燃气','物业','宽带话费','家政保洁','维修','家居添置','其他']},
+  {id:'g_trip', name:'交通出行', icon:'🚗', color:'#007AFF', subs:['公交地铁','打车','加油充电','停车','火车机票','共享单车','车辆保养','违章','其他']},
+  {id:'g_shop', name:'购物消费', icon:'🛍️', color:'#FF2D55', subs:['衣服鞋包','美妆护肤','数码家电','日用杂货','人情红包','礼物','母婴','宠物','其他']},
+  {id:'g_life', name:'生活服务', icon:'🧾', color:'#5856D6', subs:['理发美容','洗衣洗护','快递邮寄','话费充值','订阅会员','手续费','其他']},
+  {id:'g_fun',  name:'娱乐休闲', icon:'🎮', color:'#AF52DE', subs:['电影演出','游戏充值','运动健身','旅行出游','咖啡奶茶','书展展览','兴趣爱好','其他']},
+  {id:'g_heal', name:'医疗健康', icon:'💊', color:'#32ADE6', subs:['门诊挂号','药品','体检','牙科','眼科','保健品','心理咨询','其他']},
+  {id:'g_edu',  name:'教育成长', icon:'📚', color:'#34C759', subs:['课程培训','书籍','考试报名','文具','学习工具','其他']},
+  {id:'g_fin',  name:'金融保险', icon:'🏦', color:'#8E8E93', subs:['保险','贷款还款','信用卡还款','理财','转账汇款','税费','其他']}
+];
+
+// ===== 消费动机体系 =====
+// 7 大主因，其中「自我奖励」展开 5 个子类
+const DEFAULT_MOTIVES = [
+  {id:'m_need',   name:'刚需必需', icon:'🧱', subs:[]},
+  {id:'m_social', name:'社交人情', icon:'🤝', subs:[]},
+  {id:'m_reward', name:'自我奖励', icon:'🎁', subs:['情绪补偿','成就奖励','犒劳自己','冲动愉悦','打卡尝鲜']},
+  {id:'m_health', name:'健康投资', icon:'💪', subs:[]},
+  {id:'m_growth', name:'学习成长', icon:'🌱', subs:[]},
+  {id:'m_effic',  name:'效率省时', icon:'⚡', subs:[]},
+  {id:'m_other',  name:'其他',     icon:'❓', subs:[]}
+];
+// 触发「建议记一笔动机」的金额阈值
+const MOTIVE_REMIND_AMOUNT = 500;
+
 // ===== 数据层 =====
 const DB = {
   // 存钱计划
@@ -897,6 +928,11 @@ const DB = {
 
   // 年度归档：已归档年份的汇总数据（明细已清除）
   archive: {},
+
+  // 消费大类 + 子分类（全局共享，跨月一致，可增删改）
+  catGroups: JSON.parse(JSON.stringify(DEFAULT_CAT_GROUPS)),
+  // 消费动机（全局共享）
+  motives: JSON.parse(JSON.stringify(DEFAULT_MOTIVES)),
 
   // 财务数据 - 按月存储 (起始月2026-07)
   finance:{
@@ -1474,6 +1510,9 @@ function loadDB(){
         DB[key] = loaded[key];
       }
     });
+    // 保险：旧数据没有分类体系时补默认值
+    if(!Array.isArray(DB.catGroups) || !DB.catGroups.length) DB.catGroups = JSON.parse(JSON.stringify(DEFAULT_CAT_GROUPS));
+    if(!Array.isArray(DB.motives) || !DB.motives.length) DB.motives = JSON.parse(JSON.stringify(DEFAULT_MOTIVES));
     return true;
   } catch(e){
     console.error('加载失败:', e);
@@ -1528,6 +1567,45 @@ function emitTasks(){ state.listeners.tasks.forEach(f=>f()); }
 function onDecisionsChange(fn){ state.listeners.decisions.push(fn); }
 function emitDecisions(){ state.listeners.decisions.forEach(f=>f()); }
 
+// ===== 消费分类体系工具 =====
+function getCatGroup(id){ return (DB.catGroups||[]).find(g=>g.id===id) || null; }
+function groupName(id){ const g=getCatGroup(id); return g ? g.name : ''; }
+function groupColor(id){ const g=getCatGroup(id); return g ? (g.color||'#8E8E93') : '#8E8E93'; }
+function groupIcon(id){ const g=getCatGroup(id); return g ? (g.icon||'📦') : '📦'; }
+function getMotive(id){ return (DB.motives||[]).find(m=>m.id===id) || null; }
+function motiveName(id){ const m=getMotive(id); return m ? m.name : ''; }
+// 是否已归入新体系（有 group 且该大类仍然存在）
+function isClassified(e){ return !!(e && e.group && getCatGroup(e.group)); }
+// 显示用：大类（汇总层）
+function expenseLabel(e){ return isClassified(e) ? groupName(e.group) : (e.cat || '未分类'); }
+// 显示用：大类 · 子分类（明细层）
+function expenseFullLabel(e){
+  if(isClassified(e)) return groupName(e.group) + (e.sub ? ' · ' + e.sub : '');
+  return (e.cat || '未分类') + ' · 待归类';
+}
+// 待归类条数（旧的自由文本分类，需要用户逐条重新指派）
+function pendingReclassCount(monthKey){
+  const m = DB.finance[monthKey || state.currentMonth];
+  if(!m) return 0;
+  return (m.expenses||[]).filter(e=>!isClassified(e)).length;
+}
+// 字符串转义，供 onclick 内联参数使用
+function jsq(s){ return String(s==null?'':s).replace(/'/g,'').replace(/"/g,'').replace(/\\/g,''); }
+// ===== 分类槽位 key =====
+// 新体系记录 → 'G:<groupId>'（大类 ID 关联，改名不受影响）
+// 旧的自由文本记录 → 'L:<原分类名>'（待用户逐条重新指派）
+function catKeyOf(e){ return isClassified(e) ? ('G:'+e.group) : ('L:'+(e.cat||'未分类')); }
+function catKeyLabel(key){
+  if(!key) return '未分类';
+  if(key.indexOf('G:')===0){ const n = groupName(key.slice(2)); return n || '未分类'; }
+  return key.indexOf('L:')===0 ? key.slice(2) : key;
+}
+function catKeyColor(key){
+  if(key && key.indexOf('G:')===0) return groupColor(key.slice(2));
+  return '#8E8E93';
+}
+function catKeyIsLegacy(key){ return !key || key.indexOf('G:')!==0; }
+
 // ===== 计算工具 =====
 // 额外收入（奖金/外快）合计：逐条自由命名，兼容旧数据无 bonuses 字段
 function getBonusTotal(m){
@@ -1535,20 +1613,36 @@ function getBonusTotal(m){
 }
 function calcMonthFinance(monthKey){
   const m = DB.finance[monthKey];
-  if(!m) return {expenseTotal:0,normalExpense:0,balance:0,catSummary:{},advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,plan:{},catMeta:{},budget:0};
-  const catSummary = {};
+  if(!m) return {expenseTotal:0,normalExpense:0,balance:0,catSummary:{},subSummary:{},motiveSummary:{},motiveTotal:0,advanceCats:{},advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,plan:{},catMeta:{},budget:0};
+  const catSummary = {};      // 大类（旧数据为自由文本）→ 金额
+  const subSummary = {};      // 大类·子分类 → 金额
+  const motiveSummary = {};   // 消费动机 → 金额
+  let motiveTotal = 0;        // 已归因金额（动机为选填，故单独记录）
   const advanceCats = {};
   let advanceTotal = 0, advanceCount = 0, normalExpense = 0;
   (m.expenses||[]).forEach(e=>{
+    const k = catKeyOf(e);
     if(e.isAdvance){
       // 超前消费：单独统计，从收入直接扣除
       advanceTotal += e.amount;
       advanceCount++;
-      advanceCats[e.cat] = (advanceCats[e.cat]||0) + e.amount;
+      advanceCats[k] = (advanceCats[k]||0) + e.amount;
     } else {
       // 普通消费：计入流水
-      catSummary[e.cat] = (catSummary[e.cat]||0) + e.amount;
+      catSummary[k] = (catSummary[k]||0) + e.amount;
       normalExpense += e.amount;
+      // 子分类（仅新体系且有子分类时）
+      if(isClassified(e) && e.sub){
+        const sk = k + '|' + e.sub;
+        subSummary[sk] = (subSummary[sk]||0) + e.amount;
+      }
+      // 消费动机（选填）
+      if(e.motive){
+        const mn = motiveName(e.motive) || (''+e.motive);
+        const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
+        motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
+        motiveTotal += e.amount;
+      }
     }
   });
   const expenseTotal = normalExpense;
@@ -1562,6 +1656,7 @@ function calcMonthFinance(monthKey){
   const balance = goldFinal;
   return {
     expenseTotal, normalExpense, balance, catSummary,
+    subSummary, motiveSummary, motiveTotal,
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
     bonusTotal, incomeWithBonus:(m.incomeActual||0)+bonusTotal,
     advanceTotal, advanceCount, advanceCats,
@@ -1886,8 +1981,9 @@ function analyzeYearFinance(year){
         monthAdvance += e.amount;
         monthAdvanceCount++;
       } else {
-        monthCats[e.cat] = (monthCats[e.cat]||0) + e.amount;
-        catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount;
+        const k = catKeyOf(e);
+        monthCats[k] = (monthCats[k]||0) + e.amount;
+        catTotals[k] = (catTotals[k]||0) + e.amount;
       }
     });
     totalAdvance += monthAdvance;
@@ -1929,12 +2025,13 @@ function analyzeYearFinance(year){
 
   const topCat = Object.entries(catTotals).sort((a,b)=>b[1]-a[1])[0] || ['无',0];
   const accuracy = planAccuracyCount > 0 ? Math.round(planAccuracySum / planAccuracyCount * 100) : 0;
-  const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+  // key → 显示名（大类优先，旧自由文本原样）
+  const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[catKeyLabel(k), v]);
   const totalCatSpend = catList.reduce((s,[,v])=>s+v,0);
 
   return {
     months, totalIncome, totalExpense, totalGoldPlanned, totalGoldActual, totalBonus,
-    topCat: topCat[0], topCatAmount: topCat[1],
+    topCat: catKeyLabel(topCat[0]), topCatAmount: topCat[1],
     accuracy, catList, totalCatSpend,
     totalAdvance, advanceCount, advanceByMonth,
     hasData: months.length > 0
@@ -2354,6 +2451,9 @@ function renderArchiveModule(){
   // 资源分配图（消费分类占比）
   const cats = Object.entries(arc.catSummary||{}).sort((a,b)=>b[1]-a[1]);
   const catTotal = cats.reduce((s,[,v])=>s+v,0);
+  const subEntries = Object.entries(arc.subSummary||{});
+  const motEntries = Object.entries(arc.motiveSummary||{}).sort((a,b)=>b[1]-a[1]);
+  const motTotal = motEntries.reduce((s,[,v])=>s+v,0);
 
   // AI 静态分析（规则化本地生成）
   const ai = generateArchiveAnalysis(arc, year);
@@ -2404,21 +2504,56 @@ function renderArchiveModule(){
 
       <!-- 资源分配图（消费分类） -->
       <div style="background:linear-gradient(135deg,#a8edea,#fed6e3);border-radius:12px;padding:12px;margin-bottom:8px;">
-        <div style="font-size:13px;font-weight:700;color:#2c3e50;margin-bottom:8px;">🧩 资源分配图（全年消费分类）</div>
-        ${cats.length ? cats.map(([c,v])=>{
+        <div style="font-size:13px;font-weight:700;color:#2c3e50;margin-bottom:8px;">🧩 资源分配图（全年消费大类）</div>
+        ${cats.length ? cats.map(([k,v])=>{
           const pct = catTotal>0 ? Math.round(v/catTotal*100) : 0;
+          const label = catKeyLabel(k);
+          const color = catKeyColor(k);
+          const subs = subEntries.filter(([sk])=>sk.indexOf(k+'|')===0)
+            .map(([sk,sv])=>({name:sk.slice((k+'|').length), val:sv}))
+            .sort((a,b)=>b.val-a.val);
+          const open = archiveExpandCats.has(k);
           return `
           <div style="margin-bottom:6px;">
             <div style="display:flex;justify-content:space-between;font-size:12px;color:#34495e;margin-bottom:2px;">
-              <span>${c}</span><span>¥${fmtMoney(v)} · ${pct}%</span>
+              <span style="display:flex;align-items:center;gap:5px;min-width:0;">
+                <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>
+                ${subs.length ? `<span style="font-size:10px;color:#7f8c8d;flex-shrink:0;cursor:pointer;" onclick="toggleArchiveCat('${jsq(k)}')">${open?'▾':'▸'}${subs.length}</span>` : ''}
+              </span>
+              <span style="flex-shrink:0;">¥${fmtMoney(v)} · ${pct}%</span>
             </div>
             <div style="background:rgba(255,255,255,.6);height:6px;border-radius:3px;overflow:hidden;">
               <div style="background:${catBarColor(pct)};width:${pct}%;height:100%;border-radius:3px;"></div>
             </div>
+            ${open && subs.length ? subs.map(s=>`
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#5a6b7b;padding:3px 0 0 16px;">
+                <span>└ ${s.name}</span>
+                <span>¥${fmtMoney(s.val)} · ${v>0?Math.round(s.val/v*100):0}%</span>
+              </div>`).join('') : ''}
           </div>`;
         }).join('') : '<div style="font-size:12px;color:#7f8c8d;">无消费记录</div>'}
         <div style="font-size:12px;color:#7f8c8d;margin-top:4px;">全年消费总额 ¥${fmtMoney(catTotal)}</div>
       </div>
+
+      <!-- 消费动机（为什么花） -->
+      ${motEntries.length ? `
+      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:#7A4A00;margin-bottom:8px;">💡 为什么花 · 消费动机</div>
+        ${motEntries.map(([mn,mv])=>{
+          const pct = motTotal>0 ? Math.round(mv/motTotal*100) : 0;
+          return `
+          <div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:#7A4A00;margin-bottom:2px;">
+              <span>${mn}</span><span>¥${fmtMoney(mv)} · ${pct}%</span>
+            </div>
+            <div style="background:rgba(255,255,255,.6);height:6px;border-radius:3px;overflow:hidden;">
+              <div style="background:linear-gradient(90deg,#FF9500,#FF3B30);width:${pct}%;height:100%;border-radius:3px;"></div>
+            </div>
+          </div>`;
+        }).join('')}
+        <div style="font-size:11px;color:rgba(122,74,0,.7);margin-top:4px;">已归因 ¥${fmtMoney(motTotal)} / 全年消费 ¥${fmtMoney(catTotal)}${catTotal>0?'（'+Math.round(motTotal/catTotal*100)+'%）':''} · 动机为选填项</div>
+      </div>` : ''}
 
       <!-- AI 静态分析 -->
       <div style="background:linear-gradient(135deg,#667eea22,#764ba222);border-radius:12px;padding:12px;border:1px solid #667eea22;">
@@ -2429,6 +2564,16 @@ function renderArchiveModule(){
       <div style="font-size:11px;color:var(--label-3);margin-top:8px;text-align:center;">封存时刻：${arc.archivedAt||'—'}</div>
     </div>
   `;
+}
+
+// 封存卷轴里展开了大类的 key 集合
+let archiveExpandCats = new Set();
+function toggleArchiveCat(key){
+  haptic();
+  if(archiveExpandCats.has(key)) archiveExpandCats.delete(key); else archiveExpandCats.add(key);
+  const y = window.scrollY || 0;
+  renderFinanceModule(document.getElementById('content'));
+  window.scrollTo({top:y, behavior:'instant'});
 }
 
 // 消费分类进度条颜色
@@ -2458,12 +2603,13 @@ function generateArchiveAnalysis(arc, year){
 
   // 分类TOP
   if(cats.length){
-    const [topCat, topVal] = cats[0];
+    const [topKey, topVal] = cats[0];
+    const topCat = catKeyLabel(topKey);
     const topPct = expense>0 ? Math.round(topVal/expense*100) : 0;
     lines.push(`消费最多的是「${topCat}」，全年 ¥${fmtMoney(topVal)}，占消费的 ${topPct}%。`);
     if(cats.length>1){
       const [, secondVal] = cats[1];
-      if(secondVal > topVal*0.6) lines.push(`「${cats[1][0]}」也占比不低（¥${fmtMoney(secondVal)}），可重点关注。`);
+      if(secondVal > topVal*0.6) lines.push(`「${catKeyLabel(cats[1][0])}」也占比不低（¥${fmtMoney(secondVal)}），可重点关注。`);
     }
   }
 
@@ -2476,6 +2622,14 @@ function generateArchiveAnalysis(arc, year){
   // 越界提醒
   if(arc.advanceTotal>0){
     lines.push(`当年有 ¥${fmtMoney(arc.advanceTotal)} 越界（超前消费），占用了一部分未来收入，建议逐年控制。`);
+  }
+
+  // 消费动机（选填，可能不完整）
+  const mots = Object.entries(arc.motiveSummary||{}).sort((a,b)=>b[1]-a[1]);
+  if(mots.length){
+    const [mn, mv] = mots[0];
+    const cover = expense>0 ? Math.round((arc.motiveTotal||0)/expense*100) : 0;
+    lines.push(`花钱最主要的原因是「${mn}」（¥${fmtMoney(mv)}），动机记录覆盖了全年消费的 ${cover}%。`);
   }
 
   if(!lines.length) lines.push('本年度数据较少，暂无深入分析。');
@@ -2510,7 +2664,10 @@ function confirmArchiveYear(year){
 function archiveYear(year){
   const yStr = String(year);
   // 1. 汇总该年 12 个月
-  const catSummary = {};
+  const catSummary = {};      // 大类（或旧自由文本）→ 金额
+  const subSummary = {};      // 大类 · 子分类 → 金额
+  const motiveSummary = {};   // 消费动机 → 金额
+  let motiveTotal = 0;        // 已归因金额（动机为选填）
   let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0, bonusTotal = 0;
   let monthCount = 0;
   for(let m=1;m<=12;m++){
@@ -2524,9 +2681,22 @@ function archiveYear(year){
         monthAdvance += e.amount;
         advanceTotal += e.amount;
       } else {
-        catSummary[e.cat] = (catSummary[e.cat]||0) + e.amount;
+        const k = catKeyOf(e);
+        catSummary[k] = (catSummary[k]||0) + e.amount;
         monthExpense += e.amount;
         expenseTotal += e.amount;
+        // 子分类（仅新体系且填了子分类）
+        if(isClassified(e) && e.sub){
+          const sk = k + '|' + e.sub;
+          subSummary[sk] = (subSummary[sk]||0) + e.amount;
+        }
+        // 消费动机（选填）
+        if(e.motive){
+          const mn = motiveName(e.motive) || (''+e.motive);
+          const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
+          motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
+          motiveTotal += e.amount;
+        }
       }
     });
     const monthBonus = getBonusTotal(fin);
@@ -2554,6 +2724,9 @@ function archiveYear(year){
     savedTotal: savedTotal,
     advanceTotal: advanceTotal,
     catSummary: catSummary,
+    subSummary: subSummary,
+    motiveSummary: motiveSummary,
+    motiveTotal: motiveTotal,
     archivedAt: new Date().toLocaleString('zh-CN',{hour12:false})
   };
 
@@ -3072,27 +3245,59 @@ function saveTreasureField(field){
 }
 
 // 获取消费明细行：普通消费按分类累计，超前消费单独列出
+// 展开了大类子分类的 key 集合
+let expandedCatKeys = new Set();
+
 function getExpenseRows(fin, monthData){
-  const normalCats = Object.keys(fin.catSummary);
-  const advanceCats = Object.keys(fin.advanceCats||{});
+  const normalCats = Object.keys(fin.catSummary).sort((a,b)=> (fin.catSummary[b]||0) - (fin.catSummary[a]||0));
+  const advanceCats = Object.keys(fin.advanceCats||{}).sort((a,b)=> (fin.advanceCats[b]||0) - (fin.advanceCats[a]||0));
   if(!normalCats.length && !advanceCats.length && !(monthData.expenses||[]).length) return '<div class="cmp-pair-empty">暂无消费记录，点「＋录入消费」添加</div>';
 
   let html = '';
 
-  // 普通消费（按分类累计）
+  // 待归类提醒（旧自由文本分类）
+  const pending = pendingReclassCount(state.currentMonth);
+  if(pending > 0){
+    html += `<div onclick="openReclassPanel()" style="display:flex;align-items:center;gap:6px;background:rgba(255,149,0,.1);border-radius:8px;padding:8px 10px;margin-bottom:8px;cursor:pointer;">
+      <span style="font-size:13px;flex:1;color:#B26A00;font-weight:600;">⚠️ ${pending} 笔旧记录待归类</span>
+      <span style="font-size:12px;color:#B26A00;">去整理 ›</span>
+    </div>`;
+  }
+
+  // 普通消费（按大类累计，点箭头看子分类）
   if(normalCats.length){
     html += '<div class="cmp-pair-head"><span class="cmp-pair-name">分类</span><span class="cmp-pair-col">累计</span><span style="width:28px;"></span></div>';
-    html += normalCats.map(cat=>{
-      const actual = fin.catSummary[cat] || 0;
-      const safeCat = cat.replace(/'/g,'').replace(/"/g,'');
-      return `
+    html += normalCats.map(key=>{
+      const actual = fin.catSummary[key] || 0;
+      const safeKey = jsq(key);
+      const color = catKeyColor(key);
+      const legacy = catKeyIsLegacy(key);
+      // 该大类下的子分类
+      const subs = Object.keys(fin.subSummary||{}).filter(k=>k.indexOf(key+'|')===0)
+        .map(k=>({name:k.slice((key+'|').length), val:fin.subSummary[k]}))
+        .sort((a,b)=>b.val-a.val);
+      const open = expandedCatKeys.has(key);
+      let out = `
         <div class="cmp-pair-row">
-          <span class="cmp-pair-name">${cat}</span>
-          <span class="cmp-pair-col">—</span>
+          <span class="cmp-pair-name" style="display:flex;align-items:center;gap:5px;min-width:0;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${catKeyLabel(key)}</span>
+            ${legacy ? '<span style="font-size:10px;color:#FF9500;background:rgba(255,149,0,.12);padding:1px 4px;border-radius:4px;flex-shrink:0;">旧</span>' : ''}
+            ${subs.length ? `<span onclick="toggleCatSub('${safeKey}')" style="font-size:10px;color:var(--label-3);flex-shrink:0;padding:0 2px;">${open?'▾':'▸'}${subs.length}</span>` : ''}
+          </span>
           <span class="cmp-pair-col expense">¥${fmtMoney(actual)}</span>
-          <button class="cmp-pair-edit" onclick="openExpenseCatManage('${safeCat}')">管理</button>
-        </div>
-      `;
+          <button class="cmp-pair-edit" onclick="openExpenseCatManage('${safeKey}')">管理</button>
+        </div>`;
+      if(open && subs.length){
+        const total = actual || 1;
+        out += subs.map(s=>`
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;font-size:12px;color:var(--label-2);">
+            <span style="flex:1;">└ ${s.name}</span>
+            <span style="color:var(--label-3);">¥${fmtMoney(s.val)}</span>
+            <span style="color:var(--label-3);font-size:11px;width:34px;text-align:right;">${Math.round(s.val/total*100)}%</span>
+          </div>`).join('');
+      }
+      return out;
     }).join('');
   }
 
@@ -3104,32 +3309,71 @@ function getExpenseRows(fin, monthData){
         <span style="font-size:13px;font-weight:600;color:#FF9500;">⚠️ 超前消费</span>
         <span style="font-size:13px;color:#FF9500;font-weight:600;">¥${fmtMoney(advTotal)}</span>
       </div>`;
-    html += advanceCats.map(cat=>{
-      const actual = fin.advanceCats[cat] || 0;
-      const safeCat = cat.replace(/'/g,'').replace(/"/g,'');
+    html += advanceCats.map(key=>{
+      const actual = fin.advanceCats[key] || 0;
+      const safeKey = jsq(key);
+      const color = catKeyColor(key);
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;">
-          <span style="color:var(--label-2);">${cat}</span>
+          <span style="color:var(--label-2);display:flex;align-items:center;gap:5px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>${catKeyLabel(key)}
+          </span>
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="color:#FF9500;">¥${fmtMoney(actual)}</span>
-            <button class="cmp-pair-edit" style="font-size:12px;" onclick="editExpenseItem('${safeCat}')">✎</button>
+            <button class="cmp-pair-edit" style="font-size:12px;" onclick="editExpenseItem('${safeKey}')">✎</button>
           </div>
         </div>`;
     }).join('');
     html += '</div>';
   }
 
+  // 消费动机（选填）—— 为什么花
+  const motEnt = Object.entries(fin.motiveSummary||{}).sort((a,b)=>b[1]-a[1]);
+  if(motEnt.length){
+    const motTotal = fin.motiveTotal||0;
+    const open = !!state.showMotive;
+    html += `<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--separator);">
+      <div onclick="toggleMotive()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:2px 0;">
+        <span style="font-size:13px;font-weight:600;">💡 为什么花（动机）</span>
+        <span style="font-size:11px;color:var(--label-3);">已归因 ¥${fmtMoney(motTotal)} · ${(fin.normalExpense||0)>0?Math.round(motTotal/fin.normalExpense*100):0}% ${open?'▾':'▸'}</span>
+      </div>
+      ${open ? motEnt.map(([mn,mv])=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">
+          <span style="color:var(--label-2);">${mn}</span>
+          <span style="color:var(--label-3);">¥${fmtMoney(mv)} · ${motTotal>0?Math.round(mv/motTotal*100):0}%</span>
+        </div>`).join('') : ''}
+    </div>`;
+  }
+
   return html;
 }
 
+// 展开/收起本月消费动机
+function toggleMotive(){
+  haptic();
+  state.showMotive = !state.showMotive;
+  const y = window.scrollY || 0;
+  renderMoney(document.getElementById('content'));
+  window.scrollTo({top:y, behavior:'instant'});
+}
+
+// 展开/收起某大类的子分类（保持滚动位置）
+function toggleCatSub(key){
+  haptic();
+  if(expandedCatKeys.has(key)) expandedCatKeys.delete(key); else expandedCatKeys.add(key);
+  const y = window.scrollY || 0;
+  renderMoney(document.getElementById('content'));
+  window.scrollTo({top:y, behavior:'instant'});
+}
+
 // 管理某个分类的消费：累加 + 查看/编辑/删除明细
-function openExpenseCatManage(cat){
+function openExpenseCatManage(key){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const allCats = [...new Set([...(m.expenses||[]).map(e=>e.cat), ...Object.keys(m.plan||{})])];
-  selectedExpItemCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
-  const items = (m.expenses||[]).filter(e=>e.cat===selectedExpItemCat && !e.isAdvance);
+  selectedExpItemCat = key;
+  catManageSubVal = '';
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===key && !e.isAdvance);
   // 旧数据可能没 date，显示时兜底为该月 1 号（不污染原数据）
   const fallbackDate = state.currentMonth + '-01';
   const datedItems = items.map(e=>({...e, _displayDate: e.date || fallbackDate}));
@@ -3137,11 +3381,17 @@ function openExpenseCatManage(cat){
   const sorted = datedItems.slice().sort((a,b)=> b._displayDate.localeCompare(a._displayDate));
   const total = items.reduce((s,e)=>s+e.amount,0);
   const tdy = todayStr();
+  const color = catKeyColor(key);
+  // 该大类（若为新体系）的子分类，供追加时选择
+  const gid = (key && key.indexOf('G:')===0) ? key.slice(2) : '';
+  const subOpts = gid ? ((getCatGroup(gid)||{}).subs||[]) : [];
   openSheet(`
-    <div class="sheet-title">管理 · ${selectedExpItemCat}</div>
+    <div class="sheet-title" style="display:flex;align-items:center;gap:6px;">
+      <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>${catKeyLabel(key)}
+    </div>
     <div style="font-size:12px;color:var(--label-3);margin-bottom:10px;">累计 ¥${fmtMoney(total)} · ${items.length}笔</div>
 
-    <!-- 明细列表：按日期倒序，可改备注、可删 -->
+    <!-- 明细列表：按日期倒序，可改备注/分类/日期、可删 -->
     <div style="padding:4px 0;border-bottom:.5px solid var(--separator);margin-bottom:12px;">
       ${sorted.map((e)=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg);border-radius:8px;margin:4px 0;">
@@ -3149,15 +3399,20 @@ function openExpenseCatManage(cat){
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
               <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
               <span onclick="editExpenseDate('${e.id}')" style="font-size:11px;color:${e._displayDate===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e._displayDate===tdy?'600':'500'};padding:2px 6px;border-radius:6px;background:${e._displayDate===tdy?'rgba(0,122,255,.08)':'transparent'};cursor:pointer;" title="点击修改日期">${shortDate(e._displayDate)}${e.date?'':'·旧'} <span style="opacity:.5;">📅</span></span>
+              ${e.sub ? `<span style="font-size:11px;color:${color};background:${color}1A;padding:2px 6px;border-radius:6px;">${e.sub}</span>` : ''}
+              ${e.motive ? `<span style="font-size:11px;color:var(--label-3);background:var(--bg-2,#F2F2F7);padding:2px 6px;border-radius:6px;">${motiveName(e.motive)||e.motive}${e.motiveSub?'·'+e.motiveSub:''}</span>` : ''}
             </div>
             <input class="sheet-input" id="catNote_${e.id}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注" style="width:140px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
           </div>
-          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;flex-shrink:0;" onclick="delCatExpenseEntry('${e.id}')">🗑</button>
+          <div style="display:flex;gap:4px;flex-shrink:0;">
+            <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:15px;" onclick="openReclassOne('${e.id}')" title="改分类">🏷</button>
+            <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delCatExpenseEntry('${e.id}')">🗑</button>
+          </div>
         </div>
       `).join('') || '<div style="color:var(--label-3);font-size:14px;text-align:center;padding:16px;">暂无明细</div>'}
     </div>
 
-    <!-- 累加新金额（可指定日期） -->
+    <!-- 累加新金额（可指定日期/子分类） -->
     <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">追加一笔</div>
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
@@ -3167,6 +3422,14 @@ function openExpenseCatManage(cat){
       <div class="sheet-label">日期</div>
       <input class="sheet-input" id="expItemDate" type="date" value="${tdy}">
     </div>
+    ${subOpts.length ? `
+    <div class="sheet-field">
+      <div class="sheet-label">子分类（可选）</div>
+      <div class="cat-select" id="catManageSub">
+        <div class="cat-opt selected" onclick="selectCatManageSub(this,'')">不细分</div>
+        ${subOpts.map(s=>`<div class="cat-opt" onclick="selectCatManageSub(this,'${jsq(s)}')">${s}</div>`).join('')}
+      </div>
+    </div>` : ''}
     <div class="sheet-field">
       <div class="sheet-label">备注</div>
       <input class="sheet-input" id="expItemNote" placeholder="如:午餐">
@@ -3203,8 +3466,7 @@ function delCatExpenseEntry(id){
   saveDB();
   toast('已删除');
   // 重新打开管理面板
-  const cat = selectedExpItemCat.replace(/'/g,'').replace(/"/g,'');
-  openExpenseCatManage(cat);
+  openExpenseCatManage(selectedExpItemCat);
   renderMoney(document.getElementById('content'));
 }
 
@@ -3233,8 +3495,7 @@ function editExpenseDate(id){
       if((ent.date||'') !== val){
         ent.date = val;
         saveDB();
-        const cat = selectedExpItemCat.replace(/'/g,'').replace(/"/g,'');
-        openExpenseCatManage(cat);
+        openExpenseCatManage(selectedExpItemCat);
         toast('日期已更新');
       }
     }
@@ -3254,46 +3515,222 @@ function confirmAddToCat(){
   if(!m) return;
   if(!m.expenses) m.expenses = [];
   if(!m.plan) m.plan = {};
-  if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
-  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false,date});
+  const key = selectedExpItemCat;
+  const gid = (key && key.indexOf('G:')===0) ? key.slice(2) : '';
+  const sub = gid ? (catManageSubVal||'') : '';
+  const label = catKeyLabel(key);
+  if(m.plan[label]===undefined) m.plan[label] = 0;
+  const rec = {id:'e'+Date.now(), cat:label, amount, note, isAdvance:false, date};
+  if(gid){ rec.group = gid; if(sub) rec.sub = sub; }
+  m.expenses.push(rec);
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
   emitSaved();
-  toast('已累加 '+selectedExpItemCat+' ¥'+fmtMoney(amount));
+  toast('已累加 '+label+(sub?'·'+sub:'')+' ¥'+fmtMoney(amount));
 }
 
-// 添加消费明细：支持普通消费（分类累加）+ 超前消费（分期）
+// ===== 大类 → 子分类 两级选择器（录入 / 改分类 共用） =====
+let catManageSubVal = '';
+function selectCatManageSub(el, val){
+  haptic();
+  document.querySelectorAll('#catManageSub .cat-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+  catManageSubVal = val;
+}
+
+let pickerState = { group:'', sub:'', motive:'', motiveSub:'' };
+
+function catPickerHTML(curGroup, curSub){
+  pickerState.group = curGroup || '';
+  pickerState.sub = curSub || '';
+  return `
+    <div class="cat-select" id="catPickerGroups">
+      ${(DB.catGroups||[]).map(g=>catGroupChipHTML(g, g.id===pickerState.group)).join('')}
+    </div>
+    <div id="catPickerSubs" style="margin-top:10px;">${catSubsHTML()}</div>`;
+}
+function catGroupChipHTML(g, on){
+  return `<div class="cat-opt" data-gid="${g.id}" onclick="pickCatGroup('${g.id}')"
+    style="${on?`background:${g.color};color:#fff;`:''}cursor:pointer;${on?'font-weight:600;':''}">${g.icon||''} ${g.name}</div>`;
+}
+function catSubsHTML(){
+  const g = getCatGroup(pickerState.group);
+  if(!g) return '';
+  const subs = g.subs || [];
+  if(!subs.length) return '';
+  return `<div style="font-size:12px;color:var(--label-3);margin-bottom:6px;">子分类（可选，不选则归父类）</div>
+    <div class="cat-select">
+      <div class="cat-opt" onclick="pickCatSub('')" style="${!pickerState.sub?'background:'+(g.color||'#007AFF')+';color:#fff;':''}cursor:pointer;">不细分</div>
+      ${subs.map(s=>`<div class="cat-opt" onclick="pickCatSub('${jsq(s)}')" style="${s===pickerState.sub?'background:'+(g.color||'#007AFF')+';color:#fff;':''}cursor:pointer;">${s}</div>`).join('')}
+    </div>`;
+}
+function pickCatGroup(id){
+  haptic();
+  pickerState.group = id;
+  pickerState.sub = '';
+  const wrap = document.getElementById('catPickerGroups');
+  if(wrap){
+    (DB.catGroups||[]).forEach((g,i)=>{
+      const el = wrap.children[i];
+      if(!el) return;
+      const on = g.id===id;
+      el.style.background = on ? (g.color||'#007AFF') : '';
+      el.style.color = on ? '#fff' : '';
+      el.style.fontWeight = on ? '600' : '';
+    });
+  }
+  const c = document.getElementById('catPickerSubs');
+  if(c) c.innerHTML = catSubsHTML();
+}
+function pickCatSub(s){
+  haptic();
+  pickerState.sub = s;
+  const g = getCatGroup(pickerState.group);
+  const c = document.getElementById('catPickerSubs');
+  if(c) c.innerHTML = catSubsHTML();
+}
+
+// ===== 单条记录重新指派分类 =====
+// 按旧分类名智能猜测大类（含关键字表），减少用户手动选择
+function suggestGroup(e){
+  const c = (e && e.cat || '').trim();
+  if(!c) return {gid:'', sub:''};
+  const groups = DB.catGroups || [];
+  // 1. 名称完全一致
+  let g = groups.find(x=>x.name === c);
+  // 2. 互相包含（「交通」↔「交通出行」）
+  if(!g) g = groups.find(x=> x.name.indexOf(c)>=0 || c.indexOf(x.name)>=0 );
+  // 3. 子分类完全一致
+  if(!g){
+    for(const x of groups){ if((x.subs||[]).some(sn=>sn===c)){ g = x; break; } }
+  }
+  if(g) return {gid:g.id, sub:''};
+  // 4. 关键字匹配
+  const KW = [
+    ['餐|食|饭|外卖|菜|零食|水果|奶茶|咖啡|酒', 'g_food'],
+    ['房|租|水|电|燃气|物业|宽带|话费|家政|家居', 'g_live'],
+    ['车|交通|地铁|公交|油|机票|停车|打车', 'g_trip'],
+    ['购|买|衣|鞋|包|红包|礼物|日用|数码|宠物|母婴', 'g_shop'],
+    ['理发|美容|洗|快递|充值|会员|手续费|服务', 'g_life'],
+    ['娱乐|游戏|影|演出|运动|健身|旅行|游|展|兴趣', 'g_fun'],
+    ['医|药|病|体检|牙|眼|保健|心理', 'g_heal'],
+    ['学|书|课|培训|考试|文具', 'g_edu'],
+    ['保险|贷|还款|理财|转账|税|金融', 'g_fin']
+  ];
+  for(const [pat, gid] of KW){
+    if(new RegExp(pat).test(c) && groups.some(x=>x.id===gid)) return {gid:gid, sub:''};
+  }
+  return {gid:'', sub:''};
+}
+
+function openReclassOne(id, from){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.expenses) return;
+  const ent = m.expenses.find(x=>x.id===id);
+  if(!ent) return;
+  reclassTargetId = id;
+  reclassReturn = from || 'manage';
+  // 未归类时按名称智能预选一个大类（用户确认即可，可改）
+  const guess = isClassified(ent) ? {gid:ent.group, sub:ent.sub||''} : suggestGroup(ent);
+  const initG = guess.gid || '';
+  const initS = guess.sub || '';
+  openSheet(`
+    <div class="sheet-title">🏷 重新归类</div>
+    <div style="background:var(--bg);border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px;color:var(--label-2);">
+      <div style="font-size:18px;font-weight:700;color:var(--label);">¥${fmtMoney(ent.amount)}</div>
+      <div style="margin-top:4px;">${shortDate(ent.date || (state.currentMonth+'-01'))}${ent.note?' · '+ent.note:''}</div>
+      <div style="margin-top:4px;font-size:12px;color:var(--label-3);">当前：${expenseFullLabel(ent)}</div>
+    </div>
+    ${(!isClassified(ent) && initG) ? `<div style="background:rgba(52,199,89,.12);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#1E7B34;font-weight:600;">💡 已按名称猜到「${groupName(initG)}」，确认即可，不对就改</div>` : ''}
+    <div class="sheet-field">
+      <div class="sheet-label">① 选择大类</div>
+      ${catPickerHTML(initG, initS)}
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveReclassOne()">保存</button>
+    </div>
+    <div style="font-size:11px;color:var(--label-3);text-align:center;margin-top:8px;">只改归类和子分类，金额 / 日期 / 备注都不动</div>
+  `);
+}
+let reclassTargetId = null;
+let reclassReturn = 'manage';
+function saveReclassOne(){
+  const m = DB.finance[state.currentMonth];
+  if(!m || !reclassTargetId) return;
+  const ent = (m.expenses||[]).find(x=>x.id===reclassTargetId);
+  if(!ent){ toast('记录不存在'); return; }
+  if(!pickerState.group){ toast('请先选一个大类'); return; }
+  haptic();
+  ent.group = pickerState.group;
+  const nm = groupName(pickerState.group);
+  ent.cat = nm;
+  if(pickerState.sub) ent.sub = pickerState.sub; else delete ent.sub;
+  saveDB();
+  const key = 'G:'+ent.group;
+  const back = reclassReturn;
+  reclassTargetId = null;
+  renderMoney(document.getElementById('content'));
+  if(back === 'panel'){
+    openReclassPanel();   // 继续整理下一笔
+  } else {
+    openExpenseCatManage(key);
+  }
+  toast('已归类到 '+nm);
+}
+
+// ===== 批量整理：把所有旧（自由文本）分类逐条归类 =====
+function openReclassPanel(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  const pend = (m.expenses||[]).filter(e=>!isClassified(e));
+  if(!pend.length){ toast('没有待归类的记录了'); return; }
+  pend.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  openSheet(`
+    <div class="sheet-title">🏷 整理旧分类</div>
+    <div style="font-size:12px;color:var(--label-3);margin-bottom:10px;">共 ${pend.length} 笔待归类 · 逐条指派大类与子分类（金额不变）</div>
+    <div style="max-height:52vh;overflow-y:auto;padding:2px 0;">
+      ${pend.map(e=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--bg);border-radius:10px;margin:6px 0;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)} <span style="font-size:11px;font-weight:400;color:var(--label-3);">${shortDate(e.date||(state.currentMonth+'-01'))}</span></div>
+            <div style="font-size:12px;color:var(--label-2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.cat||'未分类'}${e.note?' · '+e.note:''}</div>
+          </div>
+          <button class="cmp-pair-edit" style="flex-shrink:0;height:34px;padding:0 12px;font-size:13px;" onclick="openReclassOne('${e.id}','panel')">归类 ›</button>
+        </div>
+      `).join('')}
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">稍后</button>
+    </div>
+  `);
+}
+
+// 添加消费明细：大类 → 子分类两级选择 + 可选消费动机 + 超前消费
 function openAddExpenseItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m){ toast('请先切换到有效月份'); return; }
-  const defaultCats = ['饮食吃喝','交通出行','购物买买买','娱乐休闲','医疗健康','衣服服饰','宠物','给自己的奖励','其他'];
-  // 合并已有分类：plan 中保留的分类 + 普通消费记录里用过的分类（不含超前消费）
-  const existingCats = [...new Set([
-    ...Object.keys(m.plan || {}),
-    ...(m.expenses||[]).filter(e=>!e.isAdvance).map(e=>e.cat)
-  ])];
-  // 有已有分类时，只显示已有分类；没有时才用默认分类
-  const allCats = existingCats.length ? existingCats : defaultCats;
+  // 默认选中上次用过的大类，没有则用第一个
+  const last = (state.lastExpGroup && getCatGroup(state.lastExpGroup)) ? state.lastExpGroup : ((DB.catGroups||[])[0]||{}).id;
   openSheet(`
     <div class="sheet-title">战录 · 录入消费</div>
 
     <!-- 板块一：普通消费 -->
-    <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">① 消费明细（同分类自动累计）</div>
+    <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">① 消费明细（同大类自动累计）</div>
     <div class="sheet-field">
-      <div class="sheet-label">选择分类</div>
-      <div class="cat-select" id="expItemCat">
-        ${allCats.map((c,i)=>'<div class="cat-opt '+(i===0?'selected':'')+'" onclick="selectExpItemCat(this)">'+c+'</div>').join('')}
-      </div>
-      <div style="display:flex;gap:6px;margin-top:6px;">
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:13px;" onclick="addExpCat()">＋ 新增分类</button>
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:13px;color:var(--red);" onclick="delExpCat()">🗑 删除分类</button>
+      <div class="sheet-label">买什么 · 大类</div>
+      ${catPickerHTML(last, '')}
+      <div style="margin-top:8px;text-align:right;">
+        <span style="font-size:12px;color:var(--label-3);" onclick="openCatGroupManager()">⚙️ 管理大类 / 子分类</span>
       </div>
     </div>
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
-      <input class="sheet-input" id="expItemAmount" type="number" placeholder="0">
+      <input class="sheet-input" id="expItemAmount" type="number" placeholder="0" oninput="checkMotiveRemind()">
     </div>
     <div class="sheet-field">
       <div class="sheet-label">日期</div>
@@ -3306,8 +3743,17 @@ function openAddExpenseItem(){
 
     <div style="height:1px;background:var(--separator);margin:10px 0;"></div>
 
-    <!-- 板块二：超前消费（分期） -->
-    <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">② 超前消费（分期/赊账）</div>
+    <!-- 板块二：消费动机（选填） -->
+    <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">② 为什么花 · 消费动机（选填）</div>
+    <div id="motiveRemind" style="display:none;background:rgba(255,149,0,.12);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#B26A00;font-weight:600;">
+      💡 金额超过 ¥${MOTIVE_REMIND_AMOUNT}，建议记一笔动机
+    </div>
+    ${motivePickerHTML('', '')}
+
+    <div style="height:1px;background:var(--separator);margin:10px 0;"></div>
+
+    <!-- 板块三：超前消费（分期） -->
+    <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">③ 超前消费（分期/赊账）</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:4px;">
       <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;" onchange="toggleAdvanceOptions()">
       <span style="color:var(--red);">标记为超前消费（从收入扣除）</span>
@@ -3324,49 +3770,183 @@ function openAddExpenseItem(){
   `);
 }
 
-let selectedExpItemCat = '饮食吃喝';
-function selectExpItemCat(el){
-  haptic();
-  document.querySelectorAll('#expItemCat .cat-opt').forEach(o=>o.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedExpItemCat = el.textContent;
+// 金额超过阈值时提示记动机
+function checkMotiveRemind(){
+  const el = document.getElementById('motiveRemind');
+  if(!el) return;
+  const v = parseFloat((document.getElementById('expItemAmount')||{}).value)||0;
+  el.style.display = (v > MOTIVE_REMIND_AMOUNT) ? 'block' : 'none';
 }
 
-function addExpCat(){
-  const name = prompt('输入新分类名称：');
-  if(!name || !name.trim()) return;
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  if(!m.plan) m.plan = {};
-  if(m.plan[name.trim()]===undefined) m.plan[name.trim()] = 0;
-  saveDB();
-  selectedExpItemCat = name.trim();
-  openAddExpenseItem();
-  toast('已新增分类: '+name.trim());
+// ===== 消费动机选择器 =====
+function motivePickerHTML(curMotive, curSub){
+  pickerState.motive = curMotive || '';
+  pickerState.motiveSub = curSub || '';
+  return `
+    <div class="cat-select" id="motivePicker">
+      ${(DB.motives||[]).map(m=>`<div class="cat-opt" onclick="pickMotive('${m.id}')" style="${m.id===pickerState.motive?'background:#FF9500;color:#fff;font-weight:600;':''}cursor:pointer;">${m.icon||''} ${m.name}</div>`).join('')}
+    </div>
+    <div id="motivePickerSubs" style="margin-top:8px;">${motiveSubsHTML()}</div>`;
 }
-
-function delExpCat(){
-  const cat = selectedExpItemCat;
-  if(!cat){ toast('请先选择分类'); return; }
-  const m = DB.finance[state.currentMonth];
-  if(!m) return;
-  if(!confirm('确定删除分类「'+cat+'」？\n该分类下的消费记录也会被删除。')) return;
+function motiveSubsHTML(){
+  const m = getMotive(pickerState.motive);
+  if(!m || !(m.subs||[]).length) return '';
+  return `<div style="font-size:12px;color:var(--label-3);margin-bottom:6px;">${m.name} · 细分（可选）</div>
+    <div class="cat-select">
+      <div class="cat-opt" onclick="pickMotiveSub('')" style="${!pickerState.motiveSub?'background:#FF9500;color:#fff;':''}cursor:pointer;">不细分</div>
+      ${m.subs.map(s=>`<div class="cat-opt" onclick="pickMotiveSub('${jsq(s)}')" style="${s===pickerState.motiveSub?'background:#FF9500;color:#fff;':''}cursor:pointer;">${s}</div>`).join('')}
+    </div>`;
+}
+function pickMotive(id){
   haptic();
-  if(m.plan) delete m.plan[cat];
-  if(m.expenses) m.expenses = m.expenses.filter(e=>e.cat!==cat);
-  if(m.catMeta) delete m.catMeta[cat];
-  saveDB();
-  // 更新 selectedExpItemCat 为剩余分类中的第一个，没有则重置为默认
-  const remaining = [...new Set([...Object.keys(m.plan||{}), ...(m.expenses||[]).filter(e=>!e.isAdvance).map(e=>e.cat)])];
-  selectedExpItemCat = remaining[0] || '饮食吃喝';
-  // 如果还有剩余分类，直接重开面板；没有则关闭并刷新主界面
-  if(remaining.length){
-    openAddExpenseItem();
-  } else {
-    closeSheet();
-    renderMoney(document.getElementById('content'));
+  pickerState.motive = id;
+  pickerState.motiveSub = '';
+  const wrap = document.getElementById('motivePicker');
+  if(wrap){
+    (DB.motives||[]).forEach((m,i)=>{
+      const el = wrap.children[i]; if(!el) return;
+      const on = m.id===id;
+      el.style.background = on ? '#FF9500' : '';
+      el.style.color = on ? '#fff' : '';
+      el.style.fontWeight = on ? '600' : '';
+    });
   }
-  toast('已删除分类: '+cat);
+  const c = document.getElementById('motivePickerSubs');
+  if(c) c.innerHTML = motiveSubsHTML();
+}
+function pickMotiveSub(s){
+  haptic();
+  pickerState.motiveSub = s;
+  const c = document.getElementById('motivePickerSubs');
+  if(c) c.innerHTML = motiveSubsHTML();
+}
+
+// ===== 大类管理：新增 / 改名 / 改图标 / 改子分类 / 删除 =====
+function openCatGroupManager(){
+  haptic();
+  // 统计每个大类的使用笔数（全库，含历史月份）
+  const usage = {};
+  Object.keys(DB.finance||{}).forEach(mk=>{
+    (DB.finance[mk].expenses||[]).forEach(e=>{
+      if(e.group) usage[e.group] = (usage[e.group]||0)+1;
+    });
+  });
+  openSheet(`
+    <div class="sheet-title">⚙️ 消费大类管理</div>
+    <div style="font-size:12px;color:var(--label-3);margin-bottom:10px;line-height:1.5;">
+      共 ${(DB.catGroups||[]).length} 个大类 · 记录按 ID 关联，改名不会丢数据<br>
+      有记录的大类不能删除（避免数据丢失），可先逐条归类到别的大类
+    </div>
+    ${(DB.catGroups||[]).map(g=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg);border-radius:10px;margin:6px 0;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${g.color||'#8E8E93'};flex-shrink:0;"></span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;font-weight:600;">${g.icon||''} ${g.name}</div>
+          <div style="font-size:11px;color:var(--label-3);margin-top:2px;">${(g.subs||[]).length} 个子分类 · ${usage[g.id]||0} 笔记录</div>
+        </div>
+        <button class="cmp-pair-edit" style="flex-shrink:0;width:34px;height:34px;" onclick="openCatGroupEdit('${g.id}')">✎</button>
+        <button class="cmp-pair-edit" style="flex-shrink:0;width:34px;height:34px;color:${usage[g.id]?'var(--label-3)':'var(--red)'};" onclick="deleteCatGroup('${g.id}')">🗑</button>
+      </div>
+    `).join('')}
+
+    <div class="sheet-field" style="margin-top:14px;border-top:.5px solid var(--separator);padding-top:12px;">
+      <div class="sheet-label">＋ 新增大类</div>
+      <input class="sheet-input" id="newGroupName" placeholder="大类名称，如：宠物">
+      <input class="sheet-input" id="newGroupSubs" placeholder="子分类，用逗号分隔（可留空）" style="margin-top:6px;">
+      <button class="sheet-btn sheet-btn-secondary" style="height:46px;font-size:15px;margin-top:8px;" onclick="addCatGroup()">添加大类</button>
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">完成</button>
+    </div>
+  `);
+}
+
+function addCatGroup(){
+  const nameEl = document.getElementById('newGroupName');
+  const subsEl = document.getElementById('newGroupSubs');
+  const name = (nameEl && nameEl.value || '').trim();
+  if(!name){ toast('请输入大类名称'); return; }
+  haptic();
+  const subs = (subsEl && subsEl.value || '').split(/[,，、]/).map(s=>s.trim()).filter(Boolean);
+  const palette = ['#FF9500','#5E5CE6','#007AFF','#FF2D55','#5856D6','#AF52DE','#32ADE6','#34C759','#8E8E93','#FF3B30','#00C7BE','#A2845E'];
+  const g = {
+    id: 'g_' + Date.now().toString(36),
+    name: name,
+    icon: '📦',
+    color: palette[(DB.catGroups||[]).length % palette.length],
+    subs: subs
+  };
+  if(!DB.catGroups) DB.catGroups = [];
+  DB.catGroups.push(g);
+  saveDB();
+  openCatGroupManager();
+  toast('已新增大类: '+name);
+}
+
+function openCatGroupEdit(gid){
+  haptic();
+  const g = getCatGroup(gid);
+  if(!g) return;
+  openSheet(`
+    <div class="sheet-title">编辑大类</div>
+    <div class="sheet-field">
+      <div class="sheet-label">名称</div>
+      <input class="sheet-input" id="grpName" value="${g.name.replace(/"/g,'&quot;')}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">图标（emoji）</div>
+      <input class="sheet-input" id="grpIcon" value="${g.icon||''}" maxlength="4" style="width:80px;">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">子分类（用逗号分隔）</div>
+      <textarea class="sheet-input" id="grpSubs" style="height:88px;padding:10px;line-height:1.6;">${(g.subs||[]).join('，')}</textarea>
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="openCatGroupManager()">返回</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveCatGroup('${gid}')">保存</button>
+    </div>
+  `);
+}
+
+function saveCatGroup(gid){
+  haptic();
+  const g = getCatGroup(gid);
+  if(!g) return;
+  const name = (document.getElementById('grpName').value||'').trim();
+  if(!name){ toast('名称不能为空'); return; }
+  const icon = (document.getElementById('grpIcon').value||'').trim() || '📦';
+  const subs = (document.getElementById('grpSubs').value||'').split(/[,，、\n]/).map(s=>s.trim()).filter(Boolean);
+  const oldName = g.name;
+  g.name = name; g.icon = icon; g.subs = subs;
+  // 改名后同步所有记录的 cat 显示名（group ID 不变，数据不会丢）
+  if(oldName !== name){
+    Object.keys(DB.finance||{}).forEach(mk=>{
+      (DB.finance[mk].expenses||[]).forEach(e=>{ if(e.group===gid) e.cat = name; });
+    });
+  }
+  saveDB();
+  openCatGroupManager();
+  renderMoney(document.getElementById('content'));
+  toast('已保存大类');
+}
+
+function deleteCatGroup(gid){
+  haptic();
+  const g = getCatGroup(gid);
+  if(!g) return;
+  let used = 0;
+  Object.keys(DB.finance||{}).forEach(mk=>{
+    (DB.finance[mk].expenses||[]).forEach(e=>{ if(e.group===gid) used++; });
+  });
+  if(used > 0){
+    toast('「'+g.name+'」还有 '+used+' 笔记录，不能删除');
+    return;
+  }
+  if(!confirm('确定删除大类「'+g.name+'」？')) return;
+  DB.catGroups = (DB.catGroups||[]).filter(x=>x.id!==gid);
+  saveDB();
+  openCatGroupManager();
+  toast('已删除大类: '+g.name);
 }
 
 function toggleAdvanceOptions(){
@@ -3377,6 +3957,10 @@ function toggleAdvanceOptions(){
 function confirmAddExpenseItem(){
   const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
+  const gid = pickerState.group;
+  if(!gid || !getCatGroup(gid)){ toast('请先选择大类'); return; }
+  const nm = groupName(gid);
+  const sub = pickerState.sub || '';
   const note = document.getElementById('expItemNote').value.trim();
   const isAdvance = document.getElementById('expItemAdvance').checked;
   const dateInp = document.getElementById('expItemDate');
@@ -3387,23 +3971,25 @@ function confirmAddExpenseItem(){
   if(!m.expenses) m.expenses = [];
   if(!m.plan) m.plan = {};
 
+  const rec = {id:'e'+Date.now(), cat:nm, group:gid, amount, note, isAdvance:isAdvance, date};
+  if(sub) rec.sub = sub;
+  if(pickerState.motive){
+    rec.motive = pickerState.motive;
+    if(pickerState.motiveSub) rec.motiveSub = pickerState.motiveSub;
+  }
+  if(isAdvance && !note) rec.note = '超前消费';
+  m.expenses.push(rec);
+  if(!isAdvance && m.plan[nm]===undefined) m.plan[nm] = 0;
+  state.lastExpGroup = gid;
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  emitSaved();
+  const tail = sub ? '·'+sub : '';
   if(isAdvance){
-    // 超前消费：记录本月这笔超前消费金额（从收入扣除）
-    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note:note||'超前消费',isAdvance:true,date});
-    saveDB();
-    closeSheet();
-    renderMoney(document.getElementById('content'));
-    emitSaved();
-    toast('已添加超前消费 ¥'+fmtMoney(amount)+'（将从收入扣除）');
+    toast('已添加超前消费 ¥'+fmtMoney(amount)+'（'+nm+tail+'，从收入扣除）');
   } else {
-    // 普通消费：同分类自动累计（追加一笔）
-    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false,date});
-    if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
-    saveDB();
-    closeSheet();
-    renderMoney(document.getElementById('content'));
-    emitSaved();
-    toast('已记入'+selectedExpItemCat+' ¥'+fmtMoney(amount));
+    toast('已记入'+nm+tail+' ¥'+fmtMoney(amount));
   }
 }
 
@@ -3442,40 +4028,49 @@ function saveBudget(){
   toast('预算已更新为 ¥'+fmtMoney(m.budget));
 }
 
-// 编辑消费明细：可修改备注、切换超前消费标记、删除
-function editExpenseItem(cat){
+// 编辑消费明细（超前消费区入口）：可改备注、切换超前台标记、改分类、删除
+function editExpenseItem(key){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const allCats = [...new Set((m.expenses||[]).map(e=>e.cat))];
-  const realCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
-  selectedEditCat = realCat;
-  const items = (m.expenses||[]).filter(e=>e.cat===realCat);
+  selectedEditCat = key;
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===key);
   const total = items.reduce((s,e)=>s+e.amount,0);
+  const color = catKeyColor(key);
   openSheet(`
-    <div class="sheet-title">编辑: ${realCat}</div>
+    <div class="sheet-title" style="display:flex;align-items:center;gap:6px;">
+      <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>编辑: ${catKeyLabel(key)}
+    </div>
     <div style="padding:12px 0;border-bottom:.5px solid var(--separator);">
       <div style="font-size:14px;color:var(--label-3);margin-bottom:8px;">当前累计: ¥${fmtMoney(total)} (${items.length}笔)</div>
       ${items.map((e,idx)=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${e.isAdvance?'background:#FFF3E0;border-radius:8px;padding:8px;margin:4px 0;':''}">
-          <div style="flex:1;">
-            <span>¥${fmtMoney(e.amount)}</span>
-            <input class="sheet-input" id="expNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注(可选)" style="width:120px;height:28px;font-size:13px;margin-left:8px;padding:0 8px;display:inline-block;">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
+              <span style="font-size:11px;color:var(--label-3);">${shortDate(e.date||(state.currentMonth+'-01'))}</span>
+              ${e.sub ? `<span style="font-size:11px;color:${color};background:${color}1A;padding:2px 6px;border-radius:6px;">${e.sub}</span>` : ''}
+              ${e.motive ? `<span style="font-size:11px;color:var(--label-3);">${motiveName(e.motive)||''}${e.motiveSub?'·'+e.motiveSub:''}</span>` : ''}
+            </div>
+            <input class="sheet-input" id="expNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注(可选)" style="width:130px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
             <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;">
               <input type="checkbox" id="expAdvance_${idx}" ${e.isAdvance?'checked':''} style="width:16px;height:16px;" onchange="toggleAdvSingle(${idx})">
               超前消费
             </label>
           </div>
-          <button class="cmp-pair-edit" onclick="delExpenseEntry('${e.id}')">🗑</button>
+          <div style="display:flex;gap:4px;flex-shrink:0;margin-left:6px;">
+            <button class="cmp-pair-edit" style="width:34px;height:34px;font-size:15px;" onclick="openReclassOne('${e.id}')" title="改分类">🏷</button>
+            <button class="cmp-pair-edit" onclick="delExpenseEntry('${e.id}')">🗑</button>
+          </div>
         </div>
       `).join('') || '<div style="color:var(--label-3);font-size:14px;">暂无记录</div>'}
     </div>
     <div class="sheet-actions" style="margin-top:14px;">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveExpenseItem('${realCat}')">保存</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveExpenseItem()">保存</button>
     </div>
     <div style="margin-top:12px;text-align:center;">
-      <button class="edit-btn" style="color:var(--red);font-size:13px;" onclick="delPlanCatFromExpense('${cat}')">删除此分类所有记录</button>
+      <button class="edit-btn" style="color:var(--red);font-size:13px;" onclick="delPlanCatFromExpense()">删除此分类所有记录</button>
     </div>
   `);
 }
@@ -3484,35 +4079,33 @@ function editExpenseItem(cat){
 function toggleAdvSingle(idx){
   const m = DB.finance[state.currentMonth];
   if(!m || !m.expenses) return;
-  const items = (m.expenses||[]).filter(e=>e.cat===selectedEditCat);
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===selectedEditCat);
   const el = document.getElementById('expAdvance_'+idx);
   if(el && items[idx]) items[idx].isAdvance = el.checked;
 }
 
-function delPlanCatFromExpense(cat){
+function delPlanCatFromExpense(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const allCats = [...new Set((m.expenses||[]).map(e=>e.cat))];
-  const realCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
+  const label = catKeyLabel(selectedEditCat);
+  if(!confirm('确定删除「'+label+'」的所有记录？此操作不可撤销。')) return;
   if(m.expenses){
-    m.expenses = m.expenses.filter(e=>e.cat!==realCat);
+    m.expenses = m.expenses.filter(e=>catKeyOf(e)!==selectedEditCat);
   }
-  if(m.plan) delete m.plan[realCat];
+  if(m.plan) delete m.plan[label];
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
-  toast('已删除分类「'+realCat+'」的所有记录');
+  toast('已删除「'+label+'」的所有记录');
 }
 
 let selectedEditCat = null;
-function saveExpenseItem(cat){
+function saveExpenseItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const allCats = [...new Set((m.expenses||[]).map(e=>e.cat))];
-  const realCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
-  const items = (m.expenses||[]).filter(e=>e.cat===realCat);
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===selectedEditCat);
   items.forEach((e,idx)=>{
     const noteEl = document.getElementById('expNote_'+idx);
     if(noteEl) e.note = noteEl.value.trim();
@@ -3531,8 +4124,7 @@ function delExpenseEntry(id){
   if(!m) return;
   m.expenses = m.expenses.filter(e=>e.id!==id);
   saveDB();
-  const cat = document.querySelector('.sheet-title').textContent.replace('编辑: ','').trim();
-  editExpenseItem(cat);
+  editExpenseItem(selectedEditCat);
   toast('已删除');
 }
 
