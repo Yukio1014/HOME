@@ -895,16 +895,23 @@ const DEFAULT_CAT_GROUPS = [
 ];
 
 // ===== 消费动机体系 =====
-// 7 大主因，其中「自我奖励」展开 5 个子类
+// 7 大主因，单一层级、不再细分；没填动机的钱统一计入「🌫️ 迷雾支出」
 const DEFAULT_MOTIVES = [
-  {id:'m_need',   name:'刚需必需', icon:'🧱', subs:[]},
-  {id:'m_social', name:'社交人情', icon:'🤝', subs:[]},
-  {id:'m_reward', name:'自我奖励', icon:'🎁', subs:['情绪补偿','成就奖励','犒劳自己','冲动愉悦','打卡尝鲜']},
-  {id:'m_health', name:'健康投资', icon:'💪', subs:[]},
-  {id:'m_growth', name:'学习成长', icon:'🌱', subs:[]},
-  {id:'m_effic',  name:'效率省时', icon:'⚡', subs:[]},
-  {id:'m_other',  name:'其他',     icon:'❓', subs:[]}
+  {id:'m_survive', name:'必要生存', icon:'🧱', subs:[]},
+  {id:'m_improve', name:'生活改善', icon:'🛋️', subs:[]},
+  {id:'m_reward',  name:'自我奖励', icon:'🎁', subs:[]},
+  {id:'m_social',  name:'人情社交', icon:'🤝', subs:[]},
+  {id:'m_growth',  name:'成长投资', icon:'🌱', subs:[]},
+  {id:'m_health',  name:'健康管理', icon:'💪', subs:[]},
+  {id:'m_impulse', name:'情绪冲动', icon:'⚡', subs:[]}
 ];
+// 旧动机 ID → 新动机 ID（'' 表示无法映射，清除后归入迷雾支出）
+const MOTIVE_ID_MAP = {
+  'm_need':'m_survive', 'm_social':'m_social', 'm_reward':'m_reward',
+  'm_health':'m_health', 'm_growth':'m_growth', 'm_effic':'m_improve', 'm_other':''
+};
+// 迷雾支出（未标记动机）的显示名
+const FOG_MOTIVE_NAME = '🌫️ 迷雾支出';
 // 触发「建议记一笔动机」的金额阈值
 const MOTIVE_REMIND_AMOUNT = 500;
 
@@ -1513,6 +1520,8 @@ function loadDB(){
     // 保险：旧数据没有分类体系时补默认值
     if(!Array.isArray(DB.catGroups) || !DB.catGroups.length) DB.catGroups = JSON.parse(JSON.stringify(DEFAULT_CAT_GROUPS));
     if(!Array.isArray(DB.motives) || !DB.motives.length) DB.motives = JSON.parse(JSON.stringify(DEFAULT_MOTIVES));
+    // 动机体系升级：旧 ID 映射到新 ID，清除已废弃的细分
+    migrateMotives();
     return true;
   } catch(e){
     console.error('加载失败:', e);
@@ -1567,6 +1576,29 @@ function emitTasks(){ state.listeners.tasks.forEach(f=>f()); }
 function onDecisionsChange(fn){ state.listeners.decisions.push(fn); }
 function emitDecisions(){ state.listeners.decisions.forEach(f=>f()); }
 
+// ===== 动机体系迁移（旧 7 主因 → 新 7 主因，只跑一次，结果落库） =====
+function migrateMotives(){
+  let changed = false;
+  const validIds = (DB.motives||[]).map(m=>m.id);
+  Object.keys(DB.finance||{}).forEach(mk=>{
+    const exps = (DB.finance[mk] && DB.finance[mk].expenses) || [];
+    exps.forEach(e=>{
+      if(!e.motive) return;
+      // 已经是新体系且有效 → 只清理遗留的细分
+      if(validIds.indexOf(e.motive) >= 0){
+        if(e.motiveSub){ delete e.motiveSub; changed = true; }
+        return;
+      }
+      const mapped = (MOTIVE_ID_MAP[e.motive] !== undefined) ? MOTIVE_ID_MAP[e.motive] : '';
+      if(mapped){ e.motive = mapped; } else { delete e.motive; }
+      if(e.motiveSub){ delete e.motiveSub; }
+      changed = true;
+    });
+  });
+  if(changed) saveDB();
+  return changed;
+}
+
 // ===== 消费分类体系工具 =====
 function getCatGroup(id){ return (DB.catGroups||[]).find(g=>g.id===id) || null; }
 function groupName(id){ const g=getCatGroup(id); return g ? g.name : ''; }
@@ -1574,6 +1606,15 @@ function groupColor(id){ const g=getCatGroup(id); return g ? (g.color||'#8E8E93'
 function groupIcon(id){ const g=getCatGroup(id); return g ? (g.icon||'📦') : '📦'; }
 function getMotive(id){ return (DB.motives||[]).find(m=>m.id===id) || null; }
 function motiveName(id){ const m=getMotive(id); return m ? m.name : ''; }
+function motiveIcon(id){ const m=getMotive(id); return m ? (m.icon||'') : ''; }
+// 全部动机（含迷雾支出）的展示名列表：已标记按金额降序，迷雾支出永远排最后
+function motiveRowsWithFog(motiveSummary, totalSpend){
+  const listed = Object.entries(motiveSummary||{}).sort((a,b)=>b[1]-a[1]);
+  const marked = listed.reduce((s,[,v])=>s+v,0);
+  const fog = Math.max(0, (totalSpend||0) - marked);
+  if(fog > 0.004) listed.push([FOG_MOTIVE_NAME, fog]);
+  return listed;
+}
 // 是否已归入新体系（有 group 且该大类仍然存在）
 function isClassified(e){ return !!(e && e.group && getCatGroup(e.group)); }
 // 显示用：大类（汇总层）
@@ -1965,7 +2006,9 @@ function analyzeYearFinance(year){
   const months = [];
   const catTotals = {};
   const motiveTotals = {};   // 全年消费动机汇总（选填）
+  const motiveAdvTotals = {};// 各动机中超前/分期放大的部分
   let motiveTotal = 0;       // 已归因金额
+  let budgetTotal = 0;       // 年度总预算 = 12 个月预算之和
   let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0, totalBonus = 0;
   let planAccuracySum = 0, planAccuracyCount = 0;
   let totalAdvance = 0, advanceCount = 0;
@@ -1988,13 +2031,14 @@ function analyzeYearFinance(year){
         catTotals[k] = (catTotals[k]||0) + e.amount;
       }
     });
-    // 消费动机（选填）：普通 + 超前 都统计
+    // 消费动机（选填）：普通 + 超前 都统计，并单独记录其中的超前/分期放大部分
     (fin.expenses||[]).forEach(e=>{
       if(!e.motive) return;
       const mn = motiveName(e.motive) || (''+e.motive);
       const mk3 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
       motiveTotals[mk3] = (motiveTotals[mk3]||0) + e.amount;
       motiveTotal += e.amount;
+      if(e.isAdvance) motiveAdvTotals[mk3] = (motiveAdvTotals[mk3]||0) + e.amount;
     });
     totalAdvance += monthAdvance;
     advanceCount += monthAdvanceCount;
@@ -2011,6 +2055,7 @@ function analyzeYearFinance(year){
     totalIncome += monthIncome;
     totalBonus += monthBonus;
     totalExpense += monthExpense;
+    budgetTotal += (fin.budget||0);
     totalGoldPlanned += goldPlanned;
     totalGoldActual += goldActual;
 
@@ -2033,6 +2078,23 @@ function analyzeYearFinance(year){
     });
   }
 
+  // 月供压力峰值月：单月分期还款额 / 当月收入 最高的那个月（平均值会和负担率撞车，峰值才有意义）
+  let peakAdvance = null;
+  fin_months_peak: {
+    let best = null;
+    (months||[]).forEach(m=>{
+      const inc = m.incomeActual || 0;
+      if(m.advance > 0 && inc > 0){
+        const ratio = m.advance / inc;
+        if(!best || ratio > best.ratio) best = {month:m.month, amount:m.advance, income:inc, ratio};
+      }
+    });
+    peakAdvance = best;
+  }
+
+  // 年末遗留负债：全库扫描，所有「日期晚于本年 12-31」的超前消费（跨年分期未来未还的部分）
+  const debtCarryOver = calcDebtCarryOver(year);
+
   const topCat = Object.entries(catTotals).sort((a,b)=>b[1]-a[1])[0] || ['无',0];
   const accuracy = planAccuracyCount > 0 ? Math.round(planAccuracySum / planAccuracyCount * 100) : 0;
   // key → 显示名（大类优先，旧自由文本原样）
@@ -2044,9 +2106,26 @@ function analyzeYearFinance(year){
     topCat: catKeyLabel(topCat[0]), topCatAmount: topCat[1],
     accuracy, catList, totalCatSpend,
     motiveList: Object.entries(motiveTotals).sort((a,b)=>b[1]-a[1]), motiveTotal,
+    motiveAdv: motiveAdvTotals,
     totalAdvance, advanceCount, advanceByMonth,
+    budgetTotal, peakAdvance, debtCarryOver,
     hasData: months.length > 0
   };
+}
+
+// 年末遗留负债：封存/结算那一刻，还没还完的分期总额
+// 口径：全库扫描所有超前消费记录，取日期晚于该年最后一天的部分（跨年分期的未来期数）
+function calcDebtCarryOver(year){
+  const cutoff = String(year) + '-12-31';
+  let sum = 0, count = 0;
+  Object.keys(DB.finance||{}).forEach(mk=>{
+    ((DB.finance[mk] && DB.finance[mk].expenses) || []).forEach(e=>{
+      if(!e.isAdvance) return;
+      const d = e.date || (mk + '-01');
+      if(d > cutoff){ sum += (e.amount||0); count++; }
+    });
+  });
+  return {amount:sum, count:count};
 }
 
 function analyzeYearStudy(year){
@@ -2325,20 +2404,101 @@ function changeArchiveYear(delta){
   renderHome(document.getElementById('content'));
 }
 
-function openYearPlanEditor(year){
-  haptic();
-  const nextYear = year + 1;
+// 从封存卷轴（已归档，明细已删）里取建议值
+function archivePlanSuggest(year){
+  const arc = DB.archive[String(year)] || {};
+  const income = arc.incomeTotal||0, expense = arc.expenseTotal||0, gold = arc.savedTotal||0;
+  const mc = arc.monthCount||1;
+  const rn = motiveName('m_reward') || '自我奖励';
+  const sn = motiveName('m_social') || '人情社交';
+  let reward = 0, social = 0;
+  Object.keys(arc.motiveSummary||{}).forEach(k=>{
+    if(k===rn || k.indexOf(rn+' · ')===0) reward += (arc.motiveSummary[k]||0);
+    if(k===sn || k.indexOf(sn+' · ')===0) social += (arc.motiveSummary[k]||0);
+  });
+  const cats = Object.entries(arc.catSummary||{}).sort((a,b)=>b[1]-a[1]);
+  return {
+    source: 'archive', hasData: !!arc.incomeTotal,
+    incomeTotal: income, expense: expense, gold: gold,
+    budgetTotal: arc.budgetTotal||0,
+    avgIncome: mc>0 ? Math.round(income/mc) : 0,
+    avgSaving: mc>0 ? Math.round(gold/mc) : 0,
+    reward: reward, social: social,
+    carry: arc.debtCarryOver||0,
+    topCat: cats.length ? catKeyLabel(cats[0][0]) : '',
+    studyDone: 0
+  };
+}
+
+// 从实时年度数据里取建议值
+function livePlanSuggest(year){
   const fin = analyzeYearFinance(year);
   const study = analyzeYearStudy(year);
+  const rn = motiveName('m_reward') || '自我奖励';
+  const sn = motiveName('m_social') || '人情社交';
+  let reward = 0, social = 0;
+  (fin.motiveList||[]).forEach(function(row){
+    const mn = row[0], mv = row[1];
+    if(mn===rn || mn.indexOf(rn+' · ')===0) reward += mv;
+    if(mn===sn || mn.indexOf(sn+' · ')===0) social += mv;
+  });
+  const mc = fin.months.length || 1;
+  return {
+    source: 'live', hasData: fin.hasData,
+    incomeTotal: fin.totalIncome, expense: fin.totalExpense, gold: fin.totalGoldActual,
+    budgetTotal: fin.budgetTotal||0,
+    avgIncome: fin.hasData ? Math.round(fin.totalIncome/mc) : 0,
+    avgSaving: fin.hasData ? Math.round(fin.totalGoldActual/mc) : 0,
+    reward: reward, social: social,
+    carry: (fin.debtCarryOver && fin.debtCarryOver.amount) || 0,
+    topCat: fin.hasData ? fin.topCat : '',
+    studyDone: study.doneTasks||0
+  };
+}
+
+function openYearPlanEditor(year, from){
+  haptic();
+  const nextYear = year + 1;
+  const s = (from === 'archive') ? archivePlanSuggest(year) : livePlanSuggest(year);
   const existing = DB.yearlyPlans[String(nextYear)] || {};
 
-  // 自动建议值
-  const avgIncome = fin.hasData ? Math.round(fin.totalIncome / fin.months.length) : 12000;
-  const avgSaving = fin.hasData ? Math.round(fin.totalGoldActual / fin.months.length) : 0;
-  const suggestedStudyGoal = study.hasData ? Math.max(DB.study.monthlyGoal||30, Math.round(study.doneTasks/12)+5) : (DB.study.monthlyGoal||30);
+  const avgIncome = s.hasData ? s.avgIncome : 12000;
+  const avgSaving = s.hasData ? s.avgSaving : 0;
+  const suggestedStudyGoal = (s.source==='live' && s.studyDone>0)
+    ? Math.max(DB.study.monthlyGoal||30, Math.round(s.studyDone/12)+5)
+    : (DB.study.monthlyGoal||30);
+  const sugIncomeTotal = s.hasData ? Math.round(s.incomeTotal) : (avgIncome*12);
+  const sugBudget = s.hasData ? Math.round(s.budgetTotal || s.expense) : 0;
+  const sugReward = s.hasData ? Math.round(s.reward || s.incomeTotal*0.05) : 0;
+  const sugSocial = s.hasData ? Math.round(s.social || 0) : 0;
+  const sugDebt = s.carry>0 ? 6 : 0;
 
   openSheet(`
     <div class="sheet-title">${nextYear} 年计划</div>
+
+    <div style="font-size:12px;font-weight:700;color:var(--label-2);margin:2px 0 6px;">🎯 新赛季五大军令状</div>
+    <div class="sheet-field">
+      <div class="sheet-label">💰 总收入预估 (¥) · 全年</div>
+      <input class="sheet-input" id="ypIncomeTotal" type="number" value="${existing.incomeTotalTarget||sugIncomeTotal}" placeholder="${sugIncomeTotal}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">📋 总预算上限 (¥) · 全年</div>
+      <input class="sheet-input" id="ypBudget" type="number" value="${existing.budgetTarget||sugBudget}" placeholder="${sugBudget}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">🎁 自我奖励专项预算 (¥)</div>
+      <input class="sheet-input" id="ypReward" type="number" value="${existing.rewardBudget||sugReward}" placeholder="${sugReward}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">🤝 人情往来上限 (¥)</div>
+      <input class="sheet-input" id="ypSocial" type="number" value="${existing.socialCap||sugSocial}" placeholder="${sugSocial}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">⚔️ 分期负债清零目标（几个月内清零）</div>
+      <input class="sheet-input" id="ypDebtMonths" type="number" value="${existing.debtClearMonths||sugDebt}" placeholder="${sugDebt}">
+    </div>
+
+    <div style="font-size:12px;font-weight:700;color:var(--label-2);margin:10px 0 6px;">📌 其它目标</div>
     <div class="sheet-field">
       <div class="sheet-label">💰 月收入目标 (¥)</div>
       <input class="sheet-input" id="ypIncome" type="number" value="${existing.incomeTarget||avgIncome}" placeholder="${avgIncome}">
@@ -2353,37 +2513,47 @@ function openYearPlanEditor(year){
     </div>
     <div class="sheet-field">
       <div class="sheet-label">🎯 重点控制消费分类</div>
-      <input class="sheet-input" id="ypFocusCat" value="${existing.focusCat||(fin.hasData?fin.topCat:'')}" placeholder="${fin.hasData?fin.topCat:'如:饮食吃喝'}">
+      <input class="sheet-input" id="ypFocusCat" value="${existing.focusCat||s.topCat}" placeholder="${s.topCat||'如:餐饮食品'}">
     </div>
     <div class="sheet-field">
       <div class="sheet-label">📝 备注 / 年度寄语</div>
       <textarea class="sheet-input" id="ypNotes" rows="3" style="resize:none;" placeholder="给新一年的自己写几句话...">${existing.notes||''}</textarea>
     </div>
     <div style="font-size:12px;color:var(--label-3);padding:4px 0;">
-      💡 建议值基于 ${year} 年数据：月均收入 ¥${fmtMoney(avgIncome)} · 月均存款 ¥${fmtMoney(avgSaving)} · 学习完成 ${study.doneTasks} 次
+      💡 建议值基于 ${year} 年数据：年收入 ¥${fmtMoney(s.incomeTotal)} · 月均 ¥${fmtMoney(avgIncome)} · 存款 ¥${fmtMoney(s.gold)} · 自我奖励 ¥${fmtMoney(s.reward)} · 人情 ¥${fmtMoney(s.social)}${s.carry>0?' · 年末遗留负债 ¥'+fmtMoney(s.carry):''}${s.studyDone>0?' · 学习完成 '+s.studyDone+' 次':''}
     </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveYearPlan(${year})">保存</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveYearPlan(${year},'${from||'home'}')">保存</button>
     </div>
   `);
 }
 
-function saveYearPlan(year){
+function saveYearPlan(year, from){
   haptic();
   const nextYear = String(year + 1);
   if(!DB.yearlyPlans) DB.yearlyPlans = {};
+  const g  = function(id){ return document.getElementById(id); };
+  const num = function(id){ const el=g(id); return el ? (parseFloat(el.value)||0) : 0; };
+  const int = function(id){ const el=g(id); return el ? (parseInt(el.value)||0) : 0; };
+  const str = function(id){ const el=g(id); return el ? (el.value||'').trim() : ''; };
   DB.yearlyPlans[nextYear] = {
-    incomeTarget: parseFloat(document.getElementById('ypIncome').value)||0,
-    savingTarget: parseFloat(document.getElementById('ypSaving').value)||0,
-    studyGoal: parseInt(document.getElementById('ypStudy').value)||0,
-    focusCat: document.getElementById('ypFocusCat').value.trim(),
-    notes: document.getElementById('ypNotes').value.trim(),
+    incomeTarget: num('ypIncome'),
+    savingTarget: num('ypSaving'),
+    studyGoal: int('ypStudy'),
+    focusCat: str('ypFocusCat'),
+    incomeTotalTarget: num('ypIncomeTotal'),
+    budgetTarget: num('ypBudget'),
+    rewardBudget: num('ypReward'),
+    socialCap: num('ypSocial'),
+    debtClearMonths: int('ypDebtMonths'),
+    notes: str('ypNotes'),
     autoGenerated: false
   };
   saveDB();
   closeSheet();
-  renderHome(document.getElementById('content'));
+  if(from === 'archive') renderFinanceModule(document.getElementById('content'));
+  else renderHome(document.getElementById('content'));
   toast(nextYear + ' 年计划已保存');
 }
 
@@ -2455,19 +2625,79 @@ function renderArchiveModule(){
   }
   // 选中年份（默认最新的）
   const year = state.archiveScrollYear || archives[0];
+  const yNum = parseInt(year);
   const arc = DB.archive[String(year)];
   const yearsTabs = archives.map(y=>`<option value="${y}" ${String(y)===String(year)?'selected':''}>${y}纪年</option>`).join('');
   if(!arc) return '<div class="card">归档数据缺失</div>';
 
-  // 资源分配图（消费分类占比）
+  // ===== 前置计算 =====
+  const income   = arc.incomeTotal||0;                 // 年度总收入
+  const expense  = arc.expenseTotal||0;                // 普通消费（不含越界）
+  const advance  = arc.advanceTotal||0;                // 越界/分期本金
+  const totalSpend = expense + advance;                // 总花费
+  const gold     = arc.savedTotal||0;                  // 结余 = 每月月结金币累加
+  const budgetTotal = arc.budgetTotal||0;
+  const budgetDiff  = budgetTotal - expense;           // 正=结余 / 负=超支
+  const monthCount  = arc.monthCount||1;
+  const avgIncome   = monthCount>0 ? income/monthCount : 0;   // 月均工资
+  const saveRate  = income>0 ? Math.round(gold/income*100) : 0;
+  const spendRate = income>0 ? Math.round(expense/income*100) : 0;
+  const advRate   = income>0 ? Math.round(advance/income*100) : 0;
+  const monthsOf  = (v)=> avgIncome>0 ? (v/avgIncome) : 0;
+
+  // 动机行（已标记降序 + 迷雾支出）
+  const markedTotal = arc.motiveTotal||0;
+  const fogAmount = Math.max(0, totalSpend - markedTotal);
+  const motiveRows = motiveRowsWithFog(arc.motiveSummary, totalSpend);
+  const motiveAdv  = arc.motiveAdv||{};
+  // 自我奖励（真实总额，含超前放大部分）
+  let rewardTotal = 0, rewardAdv = 0;
+  Object.keys(arc.motiveSummary||{}).forEach(k=>{
+    if(k === motiveName('m_reward') || k.indexOf(motiveName('m_reward')+' · ')===0){
+      rewardTotal += (arc.motiveSummary[k]||0);
+      rewardAdv   += (motiveAdv[k]||0);
+    }
+  });
+  const rewardRateOfIncome = income>0 ? (rewardTotal/income*100) : 0;
+
+  // 分类 TOP3（金币黑洞）
   const cats = Object.entries(arc.catSummary||{}).sort((a,b)=>b[1]-a[1]);
   const catTotal = cats.reduce((s,[,v])=>s+v,0);
-  const subEntries = Object.entries(arc.subSummary||{});
-  const motEntries = Object.entries(arc.motiveSummary||{}).sort((a,b)=>b[1]-a[1]);
-  const motTotal = motEntries.reduce((s,[,v])=>s+v,0);
+  const top3 = cats.slice(0,3);
 
-  // AI 静态分析（规则化本地生成）
-  const ai = generateArchiveAnalysis(arc, year);
+  // 越界
+  const carry = (arc.debtCarryOver)||0;                       // 年末遗留负债
+  const peak  = arc.peakAdvance || null;                      // 月供收入比峰值
+  const peakRatio = peak ? Math.round(peak.ratio*100) : 0;
+
+  // 上赛季对比
+  const prevArc = DB.archive[String(yNum-1)] || null;
+  const prevExpense = prevArc ? (prevArc.expenseTotal||0) : 0;
+  const prevIncome  = prevArc ? (prevArc.incomeTotal||0) : 0;
+  const prevGold    = prevArc ? (prevArc.savedTotal||0) : 0;
+  const prevSaveRate= prevIncome>0 ? Math.round(prevGold/prevIncome*100) : 0;
+  const prevAdvance = prevArc ? (prevArc.advanceTotal||0) : 0;
+
+  // 下赛季目标
+  const nextYear = yNum + 1;
+  const plan = DB.yearlyPlans[String(nextYear)] || {};
+
+  // 一句话总结：自我奖励
+  let rewardVerdict = '';
+  if(rewardTotal>0){
+    rewardVerdict = `🪞 ${year} 年你为「自我奖励」花了 <b>¥${fmtMoney(rewardTotal)}</b>，占年度总收入的 <b>${rewardRateOfIncome.toFixed(1)}%</b>，相当于花掉了 <b>${monthsOf(rewardTotal).toFixed(1)} 个月</b>的工资${rewardAdv>0?`（其中 ¥${fmtMoney(rewardAdv)} 是分期/超前透支换来的）`:''}。`;
+  }
+
+  // 一句话总结：越界
+  let debtVerdict = '';
+  if(advance>0){
+    const carryMonths = monthsOf(carry);
+    debtVerdict = advance>0
+      ? `⚠️ 分期与透支让你在本赛季多花了 <b>¥${fmtMoney(advance)}</b>（占收入 ${advRate}%）${carry>0?`，其中 <b>¥${fmtMoney(carry)}</b> 跨年遗留到下一年，相当于预支了明年 <b>${carryMonths.toFixed(1)} 个月</b>的工资`:''}。`
+      : '';
+  } else {
+    debtVerdict = '✅ 本赛季没有越界记录，全年零分期、零透支，清爽收官。';
+  }
 
   return `
     <div class="card" style="padding:12px;">
@@ -2481,100 +2711,193 @@ function renderArchiveModule(){
         </div>
       </div>
 
-      <!-- 总产出 -->
-      <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;padding:14px;margin-bottom:8px;color:#fff;">
-        <div style="font-size:12px;color:rgba(255,255,255,.75);">总产出（全年收入）</div>
-        <div style="font-size:28px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.incomeTotal||0)}</div>
+      <!-- ① 📜 赛季基本盘 · 家底盘点 -->
+      <div style="background:linear-gradient(135deg,#FFD70033,#FF950022);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD70044;">
+        <div style="font-size:14px;font-weight:700;color:#B8860B;margin-bottom:8px;">📜 赛季基本盘 · 家底盘点</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">金币总产出</div>
+            <div style="font-size:16px;font-weight:800;color:var(--blue);">¥${fmtMoney(income)}</div>
+            <div style="font-size:9px;color:var(--label-3);margin-top:1px;">年度总收入</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">资源总消耗</div>
+            <div style="font-size:16px;font-weight:800;color:var(--orange);">¥${fmtMoney(expense)}</div>
+            <div style="font-size:9px;color:var(--label-3);margin-top:1px;">${advance>0?'+ 越界 ¥'+fmtMoney(advance):'年度总消费'}</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">宝箱净增</div>
+            <div style="font-size:16px;font-weight:800;color:${gold>=0?'var(--green)':'var(--red)'};">¥${fmtMoney(gold)}</div>
+            <div style="font-size:9px;color:var(--label-3);margin-top:1px;">每月月结累加</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+          <span style="color:var(--label-2);">💰 储蓄率（结余 / 总收入）</span>
+          <span style="font-weight:700;color:${saveRate>=30?'var(--green)':saveRate>=10?'var(--orange)':'var(--red)'};">${saveRate}%</span>
+        </div>
+        <div style="background:#E5E5EA;height:8px;border-radius:4px;overflow:hidden;margin-bottom:6px;">
+          <div style="background:${saveRate>=30?'linear-gradient(90deg,#30D158,#34C759)':saveRate>=10?'linear-gradient(90deg,#FFD60A,#FF9500)':'linear-gradient(90deg,#FF9500,#FF3B30)'};width:${Math.min(100,Math.max(0,saveRate))}%;height:100%;border-radius:4px;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--label-3);margin-bottom:8px;">
+          <span>消耗率 ${spendRate}%（消费 / 收入）</span>
+          <span>月均工资 ¥${fmtMoney(avgIncome)}</span>
+        </div>
+        ${budgetTotal>0 ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,.6);border-radius:8px;">
+          <span style="font-size:11px;color:var(--label-3);">📋 年度总预算 ¥${fmtMoney(budgetTotal)} vs 实际 ¥${fmtMoney(expense)}</span>
+          <span style="font-size:12px;font-weight:700;color:${budgetDiff>=0?'var(--green)':'var(--red)'};">${budgetDiff>=0?'结余 ¥'+fmtMoney(budgetDiff):'超支 ¥'+fmtMoney(Math.abs(budgetDiff))}</span>
+        </div>` : ''}
       </div>
 
-      <!-- 全年额外收入（奖金/外快） -->
-      ${arc.bonusTotal>0 ? `
-      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:14px;margin-bottom:8px;color:#7A4A00;">
-        <div style="font-size:12px;color:rgba(122,74,0,.85);">💰 全年额外收入（奖金/外快）</div>
-        <div style="font-size:24px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.bonusTotal)}</div>
-      </div>` : ''}
-
-      <!-- 总消耗 + 宝箱填充量 -->
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <div style="flex:1;background:linear-gradient(135deg,#f093fb,#f5576c);border-radius:12px;padding:14px;color:#fff;">
-          <div style="font-size:12px;color:rgba(255,255,255,.8);">总消耗</div>
-          <div style="font-size:22px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.expenseTotal||0)}</div>
-        </div>
-        <div style="flex:1;background:linear-gradient(135deg,#43e97b,#38f9d7);border-radius:12px;padding:14px;color:#0b3d2e;">
-          <div style="font-size:12px;color:rgba(0,0,0,.55);">宝箱填充量（存款）</div>
-          <div style="font-size:22px;font-weight:700;margin-top:2px;">¥${fmtMoney(arc.savedTotal||0)}</div>
-        </div>
-      </div>
-
-      <!-- 越界记录 -->
-      ${arc.advanceTotal>0 ? `
-      <div style="background:linear-gradient(135deg,#ff9a9e,#fecfef);border-radius:12px;padding:12px;margin-bottom:8px;">
-        <div style="font-size:12px;color:#7a2d2d;font-weight:600;">⚠️ 越界记录（超前消费）</div>
-        <div style="font-size:18px;font-weight:700;color:#c0392b;margin-top:2px;">¥${fmtMoney(arc.advanceTotal)}</div>
-      </div>` : ''}
-
-      <!-- 资源分配图（消费分类） -->
-      <div style="background:linear-gradient(135deg,#a8edea,#fed6e3);border-radius:12px;padding:12px;margin-bottom:8px;">
-        <div style="font-size:13px;font-weight:700;color:#2c3e50;margin-bottom:8px;">🧩 资源分配图（全年消费大类）</div>
-        ${cats.length ? cats.map(([k,v])=>{
+      <!-- ② 🔥 金币黑洞 TOP3 -->
+      <div style="background:linear-gradient(135deg,#ff950022,#ff3b3022);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff950022;">
+        <div style="font-size:14px;font-weight:700;color:#CC5500;margin-bottom:8px;">🔥 金币黑洞 TOP3 · 三大烧钱主类</div>
+        ${top3.length ? top3.map(([k,v],i)=>{
           const pct = catTotal>0 ? Math.round(v/catTotal*100) : 0;
-          const label = catKeyLabel(k);
-          const color = catKeyColor(k);
-          const subs = subEntries.filter(([sk])=>sk.indexOf(k+'|')===0)
-            .map(([sk,sv])=>({name:sk.slice((k+'|').length), val:sv}))
-            .sort((a,b)=>b.val-a.val);
-          const open = archiveExpandCats.has(k);
+          const pctIncome = income>0 ? Math.round(v/income*100) : 0;
           return `
           <div style="margin-bottom:6px;">
-            <div style="display:flex;justify-content:space-between;font-size:12px;color:#34495e;margin-bottom:2px;">
-              <span style="display:flex;align-items:center;gap:5px;min-width:0;">
-                <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>
-                ${subs.length ? `<span style="font-size:10px;color:#7f8c8d;flex-shrink:0;cursor:pointer;" onclick="toggleArchiveCat('${jsq(k)}')">${open?'▾':'▸'}${subs.length}</span>` : ''}
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+              <span style="flex:1;color:var(--label-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                ${['🥇','🥈','🥉'][i]} ${catKeyLabel(k)}
               </span>
-              <span style="flex-shrink:0;">¥${fmtMoney(v)} · ${pct}%</span>
+              <span style="width:76px;text-align:right;font-weight:700;color:var(--red);">¥${fmtMoney(v)}</span>
+              <span style="width:44px;text-align:right;color:var(--label-3);">${pct}%</span>
             </div>
-            <div style="background:rgba(255,255,255,.6);height:6px;border-radius:3px;overflow:hidden;">
+            <div style="background:#E5E5EA;height:6px;border-radius:3px;overflow:hidden;margin-top:2px;">
               <div style="background:${catBarColor(pct)};width:${pct}%;height:100%;border-radius:3px;"></div>
             </div>
-            ${open && subs.length ? subs.map(s=>`
-              <div style="display:flex;justify-content:space-between;font-size:11px;color:#5a6b7b;padding:3px 0 0 16px;">
-                <span>└ ${s.name}</span>
-                <span>¥${fmtMoney(s.val)} · ${v>0?Math.round(s.val/v*100):0}%</span>
-              </div>`).join('') : ''}
+            <div style="font-size:10px;color:var(--label-3);margin-top:2px;padding-left:2px;">占年度总收入 ${pctIncome}% · ≈${monthsOf(v).toFixed(1)} 个月工资</div>
           </div>`;
-        }).join('') : '<div style="font-size:12px;color:#7f8c8d;">无消费记录</div>'}
-        <div style="font-size:12px;color:#7f8c8d;margin-top:4px;">全年消费总额 ¥${fmtMoney(catTotal)}</div>
+        }).join('') : '<div style="font-size:12px;color:var(--label-3);">无消费记录</div>'}
+        <div style="font-size:11px;color:var(--label-3);margin-top:4px;border-top:1px solid var(--separator);padding-top:5px;">全年消费总额 ¥${fmtMoney(catTotal)}${advance>0?'（另有越界/分期 ¥'+fmtMoney(advance)+'）':''}</div>
       </div>
 
-      <!-- 消费动机（为什么花） -->
-      ${motEntries.length ? `
-      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;">
-        <div style="font-size:13px;font-weight:700;color:#7A4A00;margin-bottom:8px;">💡 为什么花 · 消费动机</div>
-        ${motEntries.map(([mn,mv])=>{
-          const pct = motTotal>0 ? Math.round(mv/motTotal*100) : 0;
+      <!-- ③ 🪞 灵魂拷问 · 动机真相 -->
+      ${motiveRows.length ? `
+      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <div style="font-size:14px;font-weight:700;color:#7A4A00;">🪞 灵魂拷问 · 动机真相</div>
+          <div style="font-size:10px;color:rgba(122,74,0,.75);">总花费 ¥${fmtMoney(totalSpend)}</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(122,74,0,.7);padding:0 0 4px 0;border-bottom:1px solid rgba(122,74,0,.15);margin-bottom:6px;">
+          <span style="flex:1;">动机</span>
+          <span style="width:74px;text-align:right;">金额</span>
+          <span style="width:42px;text-align:right;">占消费</span>
+          <span style="width:42px;text-align:right;">占收入</span>
+        </div>
+        ${motiveRows.map(([mn,mv])=>{
+          const pctSpend = totalSpend>0 ? Math.round(mv/totalSpend*100) : 0;
+          const pctIncome = income>0 ? Math.round(mv/income*100) : 0;
+          const isFog = mn === FOG_MOTIVE_NAME;
+          const advPart = (!isFog && motiveAdv[mn]) ? motiveAdv[mn] : 0;
           return `
-          <div style="margin-bottom:6px;">
-            <div style="display:flex;justify-content:space-between;font-size:12px;color:#7A4A00;margin-bottom:2px;">
-              <span>${mn}</span><span>¥${fmtMoney(mv)} · ${pct}%</span>
+          <div style="margin-bottom:5px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+              <span style="flex:1;color:${isFog?'#8E8E93':'#7A4A00'};${isFog?'font-style:italic;':''}overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mn}</span>
+              <span style="width:74px;text-align:right;font-weight:600;color:#7A4A00;">¥${fmtMoney(mv)}</span>
+              <span style="width:42px;text-align:right;color:rgba(122,74,0,.85);">${pctSpend}%</span>
+              <span style="width:42px;text-align:right;color:rgba(122,74,0,.6);">${pctIncome}%</span>
             </div>
-            <div style="background:rgba(255,255,255,.6);height:6px;border-radius:3px;overflow:hidden;">
-              <div style="background:linear-gradient(90deg,#FF9500,#FF3B30);width:${pct}%;height:100%;border-radius:3px;"></div>
+            <div style="background:rgba(255,255,255,.55);height:5px;border-radius:3px;overflow:hidden;margin-top:2px;">
+              <div style="background:${isFog?'linear-gradient(90deg,#C7C7CC,#8E8E93)':'linear-gradient(90deg,#FF9500,#FF3B30)'};width:${pctSpend}%;height:100%;border-radius:3px;"></div>
             </div>
+            ${advPart>0 ? `<div style="font-size:10px;color:#C0392B;margin-top:2px;padding-left:2px;">↳ 其中超前/分期放大 ¥${fmtMoney(advPart)}（${mv>0?Math.round(advPart/mv*100):0}%）</div>` : ''}
           </div>`;
         }).join('')}
-        <div style="font-size:11px;color:rgba(122,74,0,.7);margin-top:4px;">已归因 ¥${fmtMoney(motTotal)} / 总花费 ¥${fmtMoney(catTotal + (arc.advanceTotal||0))}${(catTotal + (arc.advanceTotal||0))>0?'（'+Math.round(motTotal/(catTotal + (arc.advanceTotal||0))*100)+'%，含越界）':''} · 动机为选填项</div>
+        ${rewardVerdict ? `
+        <div style="margin-top:8px;padding:8px;background:rgba(255,255,255,.6);border-radius:8px;">
+          <div style="font-size:11px;color:var(--label-3);margin-bottom:3px;">🎁 真实自我奖励（含分期放大部分）</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-size:16px;font-weight:800;color:#C0392B;">¥${fmtMoney(rewardTotal)}</span>
+            <span style="font-size:11px;color:rgba(122,74,0,.85);">占年度总收入 <b>${rewardRateOfIncome.toFixed(1)}%</b></span>
+          </div>
+        </div>` : ''}
+        ${rewardVerdict ? `<div style="font-size:12px;color:#7A4A00;line-height:1.6;margin-top:6px;padding-top:6px;border-top:1px solid rgba(122,74,0,.15);">${rewardVerdict}</div>` : ''}
+        ${fogAmount>0.004 ? `<div style="font-size:10px;color:rgba(122,74,0,.65);margin-top:6px;">💡 还有 ¥${fmtMoney(fogAmount)} 没记动机，已封存无法补录，新赛季记得随手标记</div>` : ''}
       </div>` : ''}
 
-      <!-- AI 静态分析 -->
+      <!-- ④ ⚠️ 越界警示 · 分期深渊 -->
+      <div style="background:linear-gradient(135deg,#ff3b3018,#00000018);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff3b3022;">
+        <div style="font-size:14px;font-weight:700;color:#CC0000;margin-bottom:8px;">⚠️ 越界警示 · 分期深渊</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">年度分期总本金</div>
+            <div style="font-size:16px;font-weight:700;color:var(--red);">¥${fmtMoney(advance)}</div>
+            <div style="font-size:10px;color:var(--label-3);">占收入 ${advRate}%</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">年末遗留负债</div>
+            <div style="font-size:16px;font-weight:700;color:${carry>0?'var(--red)':'var(--green)'};">¥${fmtMoney(carry)}</div>
+            <div style="font-size:10px;color:var(--label-3);">跨年未还部分</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">月供收入比</div>
+            <div style="font-size:16px;font-weight:700;color:var(--orange);">${peakRatio}%</div>
+            <div style="font-size:10px;color:var(--label-3);">${peak?(peak.month+'月峰值'):'无还款'}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#7A2D2D;line-height:1.6;background:rgba(255,255,255,.6);border-radius:8px;padding:8px;">${debtVerdict}</div>
+      </div>
+
+      <!-- ⑤ 🎯 下赛季主线任务 -->
       <div style="background:linear-gradient(135deg,#667eea22,#764ba222);border-radius:12px;padding:12px;border:1px solid #667eea22;">
-        <div style="font-size:13px;font-weight:700;color:#5B4B8A;margin-bottom:8px;">🤖 静态分析</div>
-        <div style="font-size:13px;color:#3a2a5a;line-height:1.6;">${ai}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div style="font-size:14px;font-weight:700;color:#5B4B8A;">🎯 下赛季主线任务 · ${nextYear}</div>
+        </div>
+
+        <!-- 上赛季对比 -->
+        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">⚔️ 与上赛季（${yNum-1}）对比</div>
+        ${prevArc ? `
+        <div style="background:rgba(255,255,255,.65);border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+          ${archiveCompareRow('消费总额', expense, prevExpense)}
+          ${archiveCompareRow('储蓄率', saveRate, prevSaveRate, '%', true)}
+          ${archiveCompareRow('超前消费', advance, prevAdvance)}
+        </div>
+        ` : `<div style="font-size:12px;color:var(--label-3);padding:6px 0 10px;">暂无 ${yNum-1} 赛季档案，无法对比</div>`}
+
+        <!-- 下一年目标设定 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-size:12px;font-weight:600;color:var(--label-2);">📌 ${nextYear} 年目标设定</div>
+          <button class="edit-btn" style="font-size:12px;color:#5B4B8A;" onclick="openYearPlanEditor(${yNum},'archive')">${(plan.incomeTotalTarget||plan.budgetTarget||plan.rewardBudget||plan.socialCap)?'修改目标':'✨ 设定目标'}</button>
+        </div>
+        ${(plan.incomeTotalTarget||plan.budgetTarget||plan.rewardBudget||plan.socialCap||plan.debtClearMonths) ? `
+        <div style="background:rgba(255,255,255,.65);border-radius:8px;padding:8px 10px;">
+          ${plan.incomeTotalTarget ? `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;"><span style="color:var(--label-3);">💰 总收入预估</span><span style="font-weight:600;">¥${fmtMoney(plan.incomeTotalTarget)}</span></div>` : ''}
+          ${plan.budgetTarget ? `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;"><span style="color:var(--label-3);">📋 总预算上限</span><span style="font-weight:600;">¥${fmtMoney(plan.budgetTarget)}</span></div>` : ''}
+          ${plan.rewardBudget ? `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;"><span style="color:var(--label-3);">🎁 自我奖励专项预算</span><span style="font-weight:600;">¥${fmtMoney(plan.rewardBudget)}</span></div>` : ''}
+          ${plan.socialCap ? `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;"><span style="color:var(--label-3);">🤝 人情往来上限</span><span style="font-weight:600;">¥${fmtMoney(plan.socialCap)}</span></div>` : ''}
+          ${plan.debtClearMonths ? `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;"><span style="color:var(--label-3);">⚔️ 分期负债清零</span><span style="font-weight:600;">${plan.debtClearMonths} 个月内${carry>0?`（每月需还 ¥${fmtMoney(carry/Math.max(1,plan.debtClearMonths))}）`:''}</span></div>` : ''}
+        </div>
+        ` : `
+        <div style="text-align:center;padding:10px;color:var(--label-3);font-size:12px;background:rgba(255,255,255,.5);border-radius:8px;">
+          📋 尚未设定 ${nextYear} 赛季目标<br>
+          <button class="edit-btn" style="color:#5B4B8A;margin-top:6px;font-size:13px;" onclick="openYearPlanEditor(${yNum},'archive')">✨ 立即规划</button>
+        </div>`}
+        ${plan.notes ? `<div style="font-size:12px;color:var(--label-2);padding:8px 0 0;line-height:1.5;">📝 ${plan.notes}</div>` : ''}
       </div>
 
       <div style="font-size:11px;color:var(--label-3);margin-top:8px;text-align:center;">封存时刻：${arc.archivedAt||'—'}</div>
     </div>
   `;
+}
+
+// 封存卷轴：与上赛季对比行
+function archiveCompareRow(label, curr, prev, suffix, reverse){
+  const unit = suffix || '';
+  const diff = curr - prev;
+  const rate = prev>0 ? Math.round(Math.abs(diff)/prev*100) : null;
+  let arrow = '→', color = 'var(--label-3)', txt = '持平';
+  if(diff > 0){ arrow = '↑'; color = reverse ? 'var(--green)' : 'var(--red)'; txt = '+' + (rate!==null?rate+'%':unit); }
+  else if(diff < 0){ arrow = '↓'; color = reverse ? 'var(--red)' : 'var(--green)'; txt = '-' + (rate!==null?rate+'%':unit); }
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:3px 0;">
+      <span style="color:var(--label-3);">${label}</span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span style="font-weight:600;">${unit==='%' ? (curr+unit) : ('¥'+fmtMoney(curr))}</span>
+        <span style="font-size:11px;color:${color};font-weight:600;">${arrow} ${txt}</span>
+      </span>
+    </div>`;
 }
 
 // 封存卷轴里展开了大类的 key 集合
@@ -2678,8 +3001,10 @@ function archiveYear(year){
   const catSummary = {};      // 大类（或旧自由文本）→ 金额
   const subSummary = {};      // 大类 · 子分类 → 金额
   const motiveSummary = {};   // 消费动机 → 金额
+  const motiveAdvSummary = {};// 各动机中「被超前/分期放大」的部分
   let motiveTotal = 0;        // 已归因金额（动机为选填）
   let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0, bonusTotal = 0;
+  let budgetTotal = 0;
   let monthCount = 0;
   for(let m=1;m<=12;m++){
     const mk = yStr + '-' + String(m).padStart(2,'0');
@@ -2694,6 +3019,7 @@ function archiveYear(year){
         const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
         motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
         motiveTotal += e.amount;
+        if(e.isAdvance) motiveAdvSummary[mk2] = (motiveAdvSummary[mk2]||0) + e.amount;
       }
       if(e.isAdvance){
         monthAdvance += e.amount;
@@ -2713,6 +3039,7 @@ function archiveYear(year){
     const monthBonus = getBonusTotal(fin);
     incomeTotal += (fin.incomeActual||0) + monthBonus;
     bonusTotal += monthBonus;
+    budgetTotal += (fin.budget||0);
     // 月结金币 = (实际工资+额外收入) - 超前 - 普通消费（goldOverride 优先）
     let gold;
     if(fin.goldOverride !== null && fin.goldOverride !== undefined) gold = fin.goldOverride;
@@ -2737,7 +3064,11 @@ function archiveYear(year){
     catSummary: catSummary,
     subSummary: subSummary,
     motiveSummary: motiveSummary,
+    motiveAdv: motiveAdvSummary,
     motiveTotal: motiveTotal,
+    budgetTotal: budgetTotal,
+    debtCarryOver: (calcDebtCarryOver(year).amount)||0,
+    peakAdvance: analyzeYearFinance(year).peakAdvance,
     archivedAt: new Date().toLocaleString('zh-CN',{hour12:false})
   };
 
@@ -2958,6 +3289,21 @@ function renderFinanceReport(year){
   const actualAvgIncome = fin.months.length>0 ? Math.round(fin.totalIncome/fin.months.length) : 0;
   const planIncomeDiff = hasPlan && plan.incomeTarget ? (actualAvgIncome - plan.incomeTarget) : null;
 
+  // ===== 排版前置计算 =====
+  const totalSpend = (fin.totalExpense||0) + (fin.totalAdvance||0);   // 总花费 = 普通消费 + 越界
+  const spendRate = (fin.totalIncome||0)>0 ? Math.round((fin.totalExpense||0)/fin.totalIncome*100) : 0;
+  const saveRate  = (fin.totalIncome||0)>0 ? Math.round(gold/fin.totalIncome*100) : 0;
+  const budgetDiff = (fin.budgetTotal||0) - (fin.totalExpense||0);    // 正=结余 / 负=超支
+  // 动机行：已标记动机（按金额降序）+ 末尾追加「迷雾支出」（没填动机的部分）
+  const motiveRows = (fin.motiveList||[]).slice();
+  const markedTotal = motiveRows.reduce((s,[,v])=>s+v,0);
+  const fogAmount = Math.max(0, totalSpend - markedTotal);
+  if(fogAmount > 0.004) motiveRows.push([FOG_MOTIVE_NAME, fogAmount]);
+  const burdenRate = (fin.totalIncome||0)>0 ? Math.round((fin.totalAdvance||0)/fin.totalIncome*100) : 0;
+  const avgMonthlyIncome = fin.months.length>0 ? (fin.totalIncome/fin.months.length) : 0;
+  const advMonthsOfIncome = avgMonthlyIncome>0 ? ((fin.totalAdvance||0)/avgMonthlyIncome) : 0;
+  const maxAdv = Math.max(...(fin.advanceByMonth||[]).map(x=>x.advance), 1);
+
   return `
     <div class="card" style="padding:12px;margin-top:8px;margin-bottom:8px;border:1px solid var(--separator);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;">
@@ -2970,7 +3316,40 @@ function renderFinanceReport(year){
         </div>
       </div>
 
-      <!-- 板块1: 预言vs现实 -->
+      <!-- 第一层 ① 👑 王座结算（年度战绩总览） -->
+      <div style="background:linear-gradient(135deg,#FFD70033,#FF950022);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD70044;">
+        <div style="font-size:14px;font-weight:700;color:#B8860B;margin-bottom:8px;">👑 王座结算 · ${year}</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">金币总产出</div>
+            <div style="font-size:16px;font-weight:800;color:var(--blue);">¥${fmtMoney(fin.totalIncome)}</div>
+            ${fin.totalBonus>0 ? `<div style="font-size:9px;color:var(--label-3);margin-top:1px;">含奖金 ¥${fmtMoney(fin.totalBonus)}</div>` : ''}
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">资源总消耗</div>
+            <div style="font-size:16px;font-weight:800;color:var(--orange);">¥${fmtMoney(fin.totalExpense)}</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">宝箱净增</div>
+            <div style="font-size:16px;font-weight:800;color:${gold>=0?'var(--green)':'var(--red)'};">¥${fmtMoney(gold)}</div>
+            <div style="font-size:9px;color:var(--label-3);margin-top:1px;">储蓄率 ${saveRate}%</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+          <span style="color:var(--label-2);">消耗率（总消费 / 总收入）</span>
+          <span style="font-weight:700;color:${spendRate>=90?'var(--red)':spendRate>=70?'var(--orange)':'var(--green)'};">${spendRate}%</span>
+        </div>
+        <div style="background:#E5E5EA;height:8px;border-radius:4px;overflow:hidden;margin-bottom:10px;">
+          <div style="background:${spendRate>=90?'linear-gradient(90deg,#FF9500,#FF3B30)':spendRate>=70?'linear-gradient(90deg,#FFD60A,#FF9500)':'linear-gradient(90deg,#30D158,#34C759)'};width:${Math.min(100,spendRate)}%;height:100%;border-radius:4px;"></div>
+        </div>
+        ${(fin.budgetTotal||0)>0 ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,.6);border-radius:8px;">
+          <span style="font-size:11px;color:var(--label-3);">年度总预算 ¥${fmtMoney(fin.budgetTotal)} vs 实际 ¥${fmtMoney(fin.totalExpense)}</span>
+          <span style="font-size:12px;font-weight:700;color:${budgetDiff>=0?'var(--green)':'var(--red)'};">${budgetDiff>=0?'结余 ¥'+fmtMoney(budgetDiff):'超支 ¥'+fmtMoney(Math.abs(budgetDiff))}</span>
+        </div>` : ''}
+      </div>
+
+      <!-- 第一层 ② 🔮 预言vs现实（预算控制，保持不变） -->
       <div style="background:linear-gradient(135deg,#667eea33,#764ba233);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #667eea22;">
         <div style="font-size:14px;font-weight:700;color:#5B4B8A;margin-bottom:8px;">🔮 预言vs现实</div>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
@@ -3002,27 +3381,91 @@ function renderFinanceReport(year){
                   <div style="background:${m.goldActual>=0?'var(--green)':'var(--red)'};width:${Math.min(100, Math.abs(m.goldActual)/200)}%;height:100%;border-radius:2px;"></div>
                 </div>
               </div>
-              <span style="font-size:10px;color:var(--label-3);width:70px;flex-shrink:0;text-align:right;">¥${fmtMoney(m.goldActual)}</span>
             </div>
           `).join('')}
-          <div style="display:flex;gap:12px;font-size:10px;color:var(--label-3);margin-top:4px;padding-left:34px;">
-            <span><span style="display:inline-block;width:8px;height:8px;background:var(--blue);border-radius:2px;margin-right:3px;"></span>预估</span>
-            <span><span style="display:inline-block;width:8px;height:8px;background:var(--green);border-radius:2px;margin-right:3px;"></span>实际</span>
-          </div>
         </div>
       </div>
 
-      <!-- 全年额外收入（奖金/外快）橙色卡片 -->
-      ${fin.totalBonus>0 ? `
-      <div style="background:linear-gradient(135deg,#FFF4E0,#FFE9C7);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:14px;font-weight:700;color:#B26A00;">💰 全年额外收入（奖金/外快）</span>
-          <span style="font-size:20px;font-weight:800;color:#E8820C;">¥${fmtMoney(fin.totalBonus)}</span>
+      <!-- 第二层 🔪 欲望解剖台（动机真相） -->
+      ${motiveRows.length ? `
+      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <div style="font-size:14px;font-weight:700;color:#7A4A00;">🔪 欲望解剖台 · 为什么花</div>
+          <div style="font-size:10px;color:rgba(122,74,0,.75);">总花费 ¥${fmtMoney(totalSpend)}${advMonthsOfIncome>0?' · ≈'+advMonthsOfIncome.toFixed(1)+'个月工资':''}</div>
         </div>
-        ${fin.totalIncome>0 ? `<div style="font-size:11px;color:#B26A00;opacity:.85;margin-top:4px;">占全年总产出的 ${Math.round(fin.totalBonus/fin.totalIncome*100)}%</div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(122,74,0,.7);padding:0 0 4px 0;border-bottom:1px solid rgba(122,74,0,.15);margin-bottom:6px;">
+          <span style="flex:1;">动机</span>
+          <span style="width:74px;text-align:right;">金额</span>
+          <span style="width:42px;text-align:right;">占消费</span>
+          <span style="width:42px;text-align:right;">占收入</span>
+        </div>
+        ${motiveRows.map(([mn,mv])=>{
+          const pctSpend = totalSpend>0 ? Math.round(mv/totalSpend*100) : 0;
+          const pctIncome = (fin.totalIncome||0)>0 ? Math.round(mv/fin.totalIncome*100) : 0;
+          const isFog = mn === FOG_MOTIVE_NAME;
+          // 该动机里由超前/分期放大的部分
+          let advPart = 0;
+          if(!isFog && fin.motiveAdv && fin.motiveAdv[mn]) advPart = fin.motiveAdv[mn];
+          return `
+          <div style="margin-bottom:5px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+              <span style="flex:1;color:${isFog?'#8E8E93':'#7A4A00'};${isFog?'font-style:italic;':''}overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mn}</span>
+              <span style="width:74px;text-align:right;font-weight:600;color:#7A4A00;">¥${fmtMoney(mv)}</span>
+              <span style="width:42px;text-align:right;color:rgba(122,74,0,.85);">${pctSpend}%</span>
+              <span style="width:42px;text-align:right;color:rgba(122,74,0,.6);">${pctIncome}%</span>
+            </div>
+            <div style="background:rgba(255,255,255,.55);height:5px;border-radius:3px;overflow:hidden;margin-top:2px;">
+              <div style="background:${isFog?'linear-gradient(90deg,#C7C7CC,#8E8E93)':'linear-gradient(90deg,#FF9500,#FF3B30)'};width:${pctSpend}%;height:100%;border-radius:3px;"></div>
+            </div>
+            ${advPart>0 ? `<div style="font-size:10px;color:#C0392B;margin-top:2px;padding-left:2px;">↳ 其中超前/分期放大 ¥${fmtMoney(advPart)}（${mv>0?Math.round(advPart/mv*100):0}%）</div>` : ''}
+          </div>`;
+        }).join('')}
+        ${fogAmount>0.004 ? `<div style="font-size:10px;color:rgba(122,74,0,.65);margin-top:6px;border-top:1px solid rgba(122,74,0,.15);padding-top:5px;">💡 还有 ¥${fmtMoney(fogAmount)} 没记动机，整理旧记录时可顺手补上</div>` : ''}
       </div>` : ''}
 
-      <!-- 板块2: 资源消耗TOP榜 -->
+      <!-- 第三层 ⚠️ 越界深渊 · 分期债务 -->
+      <div style="background:linear-gradient(135deg,#ff3b3018,#00000018);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff3b3022;">
+        <div style="font-size:14px;font-weight:700;color:#CC0000;margin-bottom:8px;">⚠️ 越界深渊 · 分期债务</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">深渊深度</div>
+            <div style="font-size:16px;font-weight:700;color:var(--red);">¥${fmtMoney(fin.totalAdvance)}</div>
+            <div style="font-size:10px;color:var(--label-3);">透支总金额</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">债务压强</div>
+            <div style="font-size:16px;font-weight:700;color:var(--orange);">${burdenRate}%</div>
+            <div style="font-size:10px;color:var(--label-3);">占年度总收入</div>
+          </div>
+          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
+            <div style="font-size:11px;color:var(--label-3);">每月失血率</div>
+            <div style="font-size:16px;font-weight:700;color:var(--orange);">${fin.peakAdvance?Math.round(fin.peakAdvance.ratio*100):0}%</div>
+            <div style="font-size:10px;color:var(--label-3);">${fin.peakAdvance?('峰值 '+fin.peakAdvance.month+'月'):'无还款'}</div>
+          </div>
+        </div>
+        ${(fin.debtCarryOver && fin.debtCarryOver.amount>0) ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,149,0,.15);border-radius:8px;margin-bottom:8px;">
+          <span style="font-size:11px;color:#7A2D2D;font-weight:600;">🧊 跨年未还（${fin.debtCarryOver.count}期）</span>
+          <span style="font-size:13px;font-weight:700;color:var(--red);">¥${fmtMoney(fin.debtCarryOver.amount)}</span>
+        </div>` : ''}
+        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">负债曲线 · 每月分期还款额</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:50px;margin-bottom:4px;">
+          ${Array.from({length:12},(_,i)=>{
+            const m = fin.advanceByMonth.find(x=>x.month===i+1);
+            const val = m?m.advance:0;
+            const h = val>0 ? Math.max(8, Math.round(val/maxAdv*40)) : 0;
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+              <div style="width:100%;background:${val>0?'linear-gradient(180deg,#FF9500,#FF3B30)':'#E5E5EA'};height:${val>0?h:3}px;border-radius:2px 2px 0 0;"></div>
+              <span style="font-size:9px;color:var(--label-3);">${i+1}月</span>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:12px;color:${advanceVerdict.startsWith('↓')?'var(--green)':advanceVerdict.startsWith('↑')?'var(--red)':'var(--label-3)'};font-weight:600;text-align:center;padding:6px 0;border-top:1px solid var(--separator);margin-top:4px;">
+          ${advanceVerdict}
+        </div>
+      </div>
+
+      <!-- 第四层 🔥 资源消耗TOP榜（保持不变） -->
       <div style="background:linear-gradient(135deg,#ff950022,#ff3b3022);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff950022;">
         <div style="font-size:14px;font-weight:700;color:#CC5500;margin-bottom:8px;">🔥 资源消耗TOP榜</div>
         <div style="background:rgba(255,149,0,.15);border-radius:8px;padding:8px 10px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
@@ -3047,78 +3490,7 @@ function renderFinanceReport(year){
         }).join('')}
       </div>
 
-      <!-- 板块2.5: 为什么花 · 消费动机 -->
-      ${(fin.motiveList||[]).length ? `
-      <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
-          <div style="font-size:14px;font-weight:700;color:#7A4A00;">💡 为什么花 · 消费动机</div>
-          <div style="font-size:11px;color:rgba(122,74,0,.75);">已归因 ¥${fmtMoney(fin.motiveTotal||0)} · 占总花费 ${((fin.totalExpense||0)+(fin.totalAdvance||0))>0?Math.round((fin.motiveTotal||0)/((fin.totalExpense||0)+(fin.totalAdvance||0))*100):0}%${(fin.totalAdvance||0)>0?'（含越界）':''}</div>
-        </div>
-        ${fin.motiveList.map(([mn,mv])=>{
-          const pct = (fin.motiveTotal||0)>0 ? Math.round(mv/fin.motiveTotal*100) : 0;
-          return `
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-              <span style="font-size:12px;color:#7A4A00;width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mn}</span>
-              <div style="flex:1;background:rgba(255,255,255,.6);height:8px;border-radius:4px;overflow:hidden;">
-                <div style="background:linear-gradient(90deg,#FF9500,#FF3B30);width:${pct}%;height:100%;border-radius:4px;"></div>
-              </div>
-              <span style="font-size:11px;color:rgba(122,74,0,.8);width:84px;flex-shrink:0;text-align:right;">¥${fmtMoney(mv)} · ${pct}%</span>
-            </div>`;
-        }).join('')}
-        <div style="font-size:10px;color:rgba(122,74,0,.6);margin-top:6px;">动机为选填项，整理旧记录时可在「重新归类」面板顺手补记</div>
-      </div>` : ''}
-
-      <!-- 板块3: 越界监控面板 -->
-      <div style="background:linear-gradient(135deg,#ff3b3018,#00000018);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #ff3b3022;">
-        <div style="font-size:14px;font-weight:700;color:#CC0000;margin-bottom:8px;">⚠️ 越界监控面板</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
-            <div style="font-size:11px;color:var(--label-3);">透支金币比率</div>
-            <div style="font-size:16px;font-weight:700;color:var(--red);">¥${fmtMoney(fin.totalAdvance)}</div>
-            <div style="font-size:10px;color:var(--label-3);">${fin.totalExpense>0?Math.round(fin.totalAdvance/fin.totalExpense*100)+'%占比':''}</div>
-          </div>
-          <div style="flex:1;text-align:center;background:rgba(255,59,48,.12);border-radius:8px;padding:8px 4px;">
-            <div style="font-size:11px;color:var(--label-3);">越界交易次数</div>
-            <div style="font-size:16px;font-weight:700;color:var(--orange);">${fin.advanceCount}次</div>
-          </div>
-        </div>
-        <div style="font-size:12px;font-weight:600;color:var(--label-2);margin-bottom:6px;">越界趋势线</div>
-        <div style="display:flex;align-items:flex-end;gap:3px;height:50px;margin-bottom:4px;">
-          ${Array.from({length:12},(_,i)=>{
-            const m = fin.advanceByMonth.find(x=>x.month===i+1);
-            const val = m?m.advance:0;
-            const maxAdv = Math.max(...fin.advanceByMonth.map(x=>x.advance),1);
-            const h = val>0 ? Math.max(8, Math.round(val/maxAdv*40)) : 0;
-            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
-              <div style="width:100%;background:${val>0?'linear-gradient(180deg,#FF9500,#FF3B30)':'#E5E5EA'};height:${val>0?h:3}px;border-radius:2px 2px 0 0;"></div>
-              <span style="font-size:9px;color:var(--label-3);">${i+1}月</span>
-            </div>`;
-          }).join('')}
-        </div>
-        <div style="font-size:12px;color:${advanceVerdict.startsWith('↓')?'var(--green)':advanceVerdict.startsWith('↑')?'var(--red)':'var(--label-3)'};font-weight:600;text-align:center;padding:6px 0;border-top:1px solid var(--separator);margin-top:4px;">
-          ${advanceVerdict}
-        </div>
-      </div>
-
-      <!-- 板块4: 跨赛季对战记录 -->
-      <div style="background:linear-gradient(135deg,#00bcd422,#00968822);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #00bcd422;">
-        <div style="font-size:14px;font-weight:700;color:#00838F;margin-bottom:8px;">⚔️ 跨赛季对战记录 <span style="font-size:12px;font-weight:400;color:var(--label-3);">${year} vs ${year-1}</span></div>
-        ${!hasPrev ? `
-          <div style="text-align:center;padding:12px;color:var(--label-3);font-size:13px;">📭 暂无上赛季档案</div>
-        ` : `
-          ${renderYearCompareRow('宝箱实际填充量', gold, prevGold, '¥')}
-          ${renderYearCompareRow('总产出', fin.totalIncome, prevFin.totalIncome, '¥')}
-          ${renderYearCompareRow('额外收入', fin.totalBonus||0, prevFin.totalBonus||0, '¥')}
-          ${renderYearCompareRow('总消耗', fin.totalExpense, prevFin.totalExpense, '¥', true)}
-          ${renderYearCompareRow('越界交易', fin.totalAdvance, prevFin.totalAdvance, '¥', true)}
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(0,188,212,.1);border-radius:8px;margin-top:4px;">
-            <span style="font-size:12px;color:var(--label-2);">💎 金币黑洞TOP1</span>
-            <span style="font-size:12px;">${fin.topCat} <span style="color:var(--label-3);">vs</span> ${prevFin.topCat}</span>
-          </div>
-        `}
-      </div>
-
-      <!-- 板块5: 主线任务完成度 -->
+      <!-- 🎯 主线任务完成度（保持不变） -->
       <div style="background:linear-gradient(135deg,#FFD70022,#FFA50022);border-radius:12px;padding:12px;border:1px solid #FFD70033;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <div style="font-size:14px;font-weight:700;color:#B8860B;">🎯 主线任务完成度</div>
