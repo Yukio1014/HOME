@@ -1690,6 +1690,18 @@ function fmtInspDate(d){
   }
   return d;
 }
+// 短日期：今天/昨天/前天/MM-DD（同年）/YYYY-MM-DD（跨年）
+function shortDate(iso){
+  if(!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso||'';
+  const t = todayStr();
+  const yest = (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
+  const before2 = (()=>{ const d=new Date(); d.setDate(d.getDate()-2); return d.toISOString().slice(0,10); })();
+  if(iso===t) return '今天';
+  if(iso===yest) return '昨天';
+  if(iso===before2) return '前天';
+  if(iso.slice(0,4)===t.slice(0,4)) return `${parseInt(iso.slice(5,7))}-${parseInt(iso.slice(8,10))}`;
+  return iso;
+}
 function fmtMoney(n){ return (n||0).toLocaleString('zh-CN'); }
 function daysToBday(bd){
   if(!bd || typeof bd !== 'string') return 999;
@@ -3099,29 +3111,42 @@ function openExpenseCatManage(cat){
   const allCats = [...new Set([...(m.expenses||[]).map(e=>e.cat), ...Object.keys(m.plan||{})])];
   selectedExpItemCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
   const items = (m.expenses||[]).filter(e=>e.cat===selectedExpItemCat && !e.isAdvance);
+  // 按日期倒序（YYYY-MM-DD 直接字符串比较；缺日期的排到末尾）
+  const sorted = items.slice().sort((a,b)=>{
+    const ka = a.date||'0000-00-00', kb = b.date||'0000-00-00';
+    return kb.localeCompare(ka);
+  });
   const total = items.reduce((s,e)=>s+e.amount,0);
+  const tdy = todayStr();
   openSheet(`
     <div class="sheet-title">管理 · ${selectedExpItemCat}</div>
     <div style="font-size:12px;color:var(--label-3);margin-bottom:10px;">累计 ¥${fmtMoney(total)} · ${items.length}笔</div>
 
-    <!-- 明细列表：可删改备注 -->
+    <!-- 明细列表：按日期倒序，可改备注、可删 -->
     <div style="padding:4px 0;border-bottom:.5px solid var(--separator);margin-bottom:12px;">
-      ${items.map((e,idx)=>`
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;background:var(--bg);border-radius:8px;padding:8px;margin:4px 0;">
-          <div style="flex:1;">
-            <div style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</div>
-            <input class="sheet-input" id="catNote_${idx}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注" style="width:140px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
+      ${sorted.map((e)=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg);border-radius:8px;margin:4px 0;">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
+              <span style="font-size:11px;color:${e.date===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e.date===tdy?'600':'500'};">${shortDate(e.date)}</span>
+            </div>
+            <input class="sheet-input" id="catNote_${e.id}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注" style="width:140px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
           </div>
-          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delCatExpenseEntry('${e.id}')">🗑</button>
+          <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;flex-shrink:0;" onclick="delCatExpenseEntry('${e.id}')">🗑</button>
         </div>
       `).join('') || '<div style="color:var(--label-3);font-size:14px;text-align:center;padding:16px;">暂无明细</div>'}
     </div>
 
-    <!-- 累加新金额 -->
+    <!-- 累加新金额（可指定日期） -->
     <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">追加一笔</div>
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
       <input class="sheet-input" id="expItemAmount" type="number" placeholder="0">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">日期</div>
+      <input class="sheet-input" id="expItemDate" type="date" value="${tdy}">
     </div>
     <div class="sheet-field">
       <div class="sheet-label">备注</div>
@@ -3132,6 +3157,23 @@ function openExpenseCatManage(cat){
       <button class="sheet-btn sheet-btn-primary" onclick="confirmAddToCat()">累加</button>
     </div>
   `);
+  // 备注失焦自动保存
+  sorted.forEach(e=>{
+    const inp = document.getElementById('catNote_'+e.id);
+    if(inp){
+      inp.addEventListener('blur', ()=>{
+        const m2 = DB.finance[state.currentMonth];
+        const ent = (m2.expenses||[]).find(x=>x.id===e.id);
+        if(ent){
+          const newNote = inp.value.trim();
+          if((ent.note||'') !== newNote){
+            ent.note = newNote;
+            saveDB();
+          }
+        }
+      });
+    }
+  });
 }
 
 function delCatExpenseEntry(id){
@@ -3151,13 +3193,15 @@ function confirmAddToCat(){
   const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
   const note = document.getElementById('expItemNote').value.trim();
+  const dateInp = document.getElementById('expItemDate');
+  const date = (dateInp && dateInp.value && /^\d{4}-\d{2}-\d{2}$/.test(dateInp.value)) ? dateInp.value : todayStr();
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
   if(!m.expenses) m.expenses = [];
   if(!m.plan) m.plan = {};
   if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
-  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false});
+  m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false,date});
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
@@ -3196,6 +3240,10 @@ function openAddExpenseItem(){
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
       <input class="sheet-input" id="expItemAmount" type="number" placeholder="0">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">日期</div>
+      <input class="sheet-input" id="expItemDate" type="date" value="${todayStr()}">
     </div>
     <div class="sheet-field">
       <div class="sheet-label">备注</div>
@@ -3277,6 +3325,8 @@ function confirmAddExpenseItem(){
   if(!amount){ toast('请输入金额'); return; }
   const note = document.getElementById('expItemNote').value.trim();
   const isAdvance = document.getElementById('expItemAdvance').checked;
+  const dateInp = document.getElementById('expItemDate');
+  const date = (dateInp && dateInp.value && /^\d{4}-\d{2}-\d{2}$/.test(dateInp.value)) ? dateInp.value : todayStr();
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
@@ -3285,7 +3335,7 @@ function confirmAddExpenseItem(){
 
   if(isAdvance){
     // 超前消费：记录本月这笔超前消费金额（从收入扣除）
-    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note:note||'超前消费',isAdvance:true});
+    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note:note||'超前消费',isAdvance:true,date});
     saveDB();
     closeSheet();
     renderMoney(document.getElementById('content'));
@@ -3293,7 +3343,7 @@ function confirmAddExpenseItem(){
     toast('已添加超前消费 ¥'+fmtMoney(amount)+'（将从收入扣除）');
   } else {
     // 普通消费：同分类自动累计（追加一笔）
-    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false});
+    m.expenses.push({id:'e'+Date.now(),cat:selectedExpItemCat,amount,note,isAdvance:false,date});
     if(m.plan[selectedExpItemCat]===undefined) m.plan[selectedExpItemCat] = 0;
     saveDB();
     closeSheet();
