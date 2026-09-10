@@ -3599,12 +3599,14 @@ function suggestGroup(e){
   const groups = DB.catGroups || [];
   // 1. 名称完全一致
   let g = groups.find(x=>x.name === c);
-  // 2. 互相包含（「交通」↔「交通出行」）
-  if(!g) g = groups.find(x=> x.name.indexOf(c)>=0 || c.indexOf(x.name)>=0 );
-  // 3. 子分类完全一致
-  if(!g){
-    for(const x of groups){ if((x.subs||[]).some(sn=>sn===c)){ g = x; break; } }
+  if(g) return {gid:g.id, sub:''};
+  // 2. 是某个大类的子分类 → 大类和子分类一起预选（如「数码家电」→ 购物消费·数码家电）
+  for(const x of groups){
+    const hit = (x.subs||[]).find(sn=>sn===c);
+    if(hit) return {gid:x.id, sub:hit};
   }
+  // 3. 互相包含（「交通」↔「交通出行」）
+  g = groups.find(x=> x.name.indexOf(c)>=0 || c.indexOf(x.name)>=0 );
   if(g) return {gid:g.id, sub:''};
   // 4. 关键字匹配
   const KW = [
@@ -3648,12 +3650,31 @@ function openReclassOne(id, from){
       <div class="sheet-label">① 选择大类</div>
       ${catPickerHTML(initG, initS)}
     </div>
+    <div class="sheet-field" style="margin-top:12px;border-top:.5px solid var(--separator);padding-top:10px;">
+      <div class="sheet-label">② 为什么花 · 动机（选填，不改就保持原样）</div>
+      ${ent.amount > MOTIVE_REMIND_AMOUNT && !ent.motive ? `<div style="background:rgba(255,149,0,.12);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#B26A00;font-weight:600;">💡 这笔 ¥${fmtMoney(ent.amount)} 超过 ¥${MOTIVE_REMIND_AMOUNT}，建议顺手记一下动机</div>` : ''}
+      ${motivePickerHTML(ent.motive||'', ent.motiveSub||'')}
+      ${ent.motive ? `<div style="margin-top:6px;text-align:right;"><span style="font-size:11px;color:var(--red);" onclick="clearReclassMotive()">🚫 清除已有动机</span></div>` : ''}
+    </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
       <button class="sheet-btn sheet-btn-primary" onclick="saveReclassOne()">保存</button>
     </div>
-    <div style="font-size:11px;color:var(--label-3);text-align:center;margin-top:8px;">只改归类和子分类，金额 / 日期 / 备注都不动</div>
+    <div style="font-size:11px;color:var(--label-3);text-align:center;margin-top:8px;">只改归类 / 子分类 / 动机，金额 / 日期 / 备注都不动</div>
   `);
+}
+// 清除该条记录的动机（在重新归类面板里操作）
+function clearReclassMotive(){
+  haptic();
+  const m = DB.finance[state.currentMonth];
+  if(!m || !reclassTargetId) return;
+  const ent = (m.expenses||[]).find(x=>x.id===reclassTargetId);
+  if(!ent) return;
+  pickerState.motive = ''; pickerState.motiveSub = '';
+  delete ent.motive; delete ent.motiveSub;
+  saveDB();
+  openReclassOne(reclassTargetId, reclassReturn);
+  toast('已清除动机');
 }
 let reclassTargetId = null;
 let reclassReturn = 'manage';
@@ -3668,6 +3689,11 @@ function saveReclassOne(){
   const nm = groupName(pickerState.group);
   ent.cat = nm;
   if(pickerState.sub) ent.sub = pickerState.sub; else delete ent.sub;
+  // 动机：选了就更新；没选保持原样
+  if(pickerState.motive){
+    ent.motive = pickerState.motive;
+    if(pickerState.motiveSub) ent.motiveSub = pickerState.motiveSub; else delete ent.motiveSub;
+  }
   saveDB();
   const key = 'G:'+ent.group;
   const back = reclassReturn;
@@ -3678,7 +3704,7 @@ function saveReclassOne(){
   } else {
     openExpenseCatManage(key);
   }
-  toast('已归类到 '+nm);
+  toast('已归类到 '+nm+(pickerState.motive?' · 动机已记':''));
 }
 
 // ===== 批量整理：把所有旧（自由文本）分类逐条归类 =====
