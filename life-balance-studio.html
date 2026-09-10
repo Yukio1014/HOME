@@ -3290,10 +3290,10 @@ function renderFinanceReport(year){
   const planIncomeDiff = hasPlan && plan.incomeTarget ? (actualAvgIncome - plan.incomeTarget) : null;
 
   // ===== 排版前置计算 =====
-  const totalSpend = (fin.totalExpense||0) + (fin.totalAdvance||0);   // 总花费 = 普通消费 + 越界
-  const spendRate = (fin.totalIncome||0)>0 ? Math.round((fin.totalExpense||0)/fin.totalIncome*100) : 0;
+  const totalSpend = (fin.totalExpense||0) + (fin.totalAdvance||0);   // 总花费 = 普通消费 + 越界（含超前）
+  const spendRate = (fin.totalIncome||0)>0 ? Math.round(totalSpend/fin.totalIncome*100) : 0;
   const saveRate  = (fin.totalIncome||0)>0 ? Math.round(gold/fin.totalIncome*100) : 0;
-  const budgetDiff = (fin.budgetTotal||0) - (fin.totalExpense||0);    // 正=结余 / 负=超支
+  const budgetDiff = (fin.budgetTotal||0) - totalSpend;               // 正=预算结余 / 负=超支（基于真实总消耗）
   // 动机行：已标记动机（按金额降序）+ 末尾追加「迷雾支出」（没填动机的部分）
   const motiveRows = (fin.motiveList||[]).slice();
   const markedTotal = motiveRows.reduce((s,[,v])=>s+v,0);
@@ -3327,7 +3327,8 @@ function renderFinanceReport(year){
           </div>
           <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
             <div style="font-size:11px;color:var(--label-3);">资源总消耗</div>
-            <div style="font-size:16px;font-weight:800;color:var(--orange);">¥${fmtMoney(fin.totalExpense)}</div>
+            <div style="font-size:16px;font-weight:800;color:var(--orange);">¥${fmtMoney(totalSpend)}</div>
+            ${(fin.totalAdvance||0)>0 ? `<div style="font-size:9px;color:var(--label-3);margin-top:1px;">含越界 ¥${fmtMoney(fin.totalAdvance)}</div>` : ''}
           </div>
           <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
             <div style="font-size:11px;color:var(--label-3);">宝箱净增</div>
@@ -3343,9 +3344,8 @@ function renderFinanceReport(year){
           <div style="background:${spendRate>=90?'linear-gradient(90deg,#FF9500,#FF3B30)':spendRate>=70?'linear-gradient(90deg,#FFD60A,#FF9500)':'linear-gradient(90deg,#30D158,#34C759)'};width:${Math.min(100,spendRate)}%;height:100%;border-radius:4px;"></div>
         </div>
         ${(fin.budgetTotal||0)>0 ? `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,.6);border-radius:8px;">
-          <span style="font-size:11px;color:var(--label-3);">年度总预算 ¥${fmtMoney(fin.budgetTotal)} vs 实际 ¥${fmtMoney(fin.totalExpense)}</span>
-          <span style="font-size:12px;font-weight:700;color:${budgetDiff>=0?'var(--green)':'var(--red)'};">${budgetDiff>=0?'结余 ¥'+fmtMoney(budgetDiff):'超支 ¥'+fmtMoney(Math.abs(budgetDiff))}</span>
+        <div style="padding:6px 8px;background:rgba(255,255,255,.6);border-radius:8px;">
+          <span style="font-size:11px;color:var(--label-3);">年度总预算 ¥${fmtMoney(fin.budgetTotal)} vs 实际消耗 ¥${fmtMoney(totalSpend)}${(fin.totalAdvance||0)>0?'（含越界）':''}</span>
         </div>` : ''}
       </div>
 
@@ -3389,9 +3389,9 @@ function renderFinanceReport(year){
       <!-- 第二层 🔪 欲望解剖台（动机真相） -->
       ${motiveRows.length ? `
       <div style="background:linear-gradient(135deg,#FFE9C7,#FFD08A);border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #FFD08A;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-          <div style="font-size:14px;font-weight:700;color:#7A4A00;">🔪 欲望解剖台 · 为什么花</div>
-          <div style="font-size:10px;color:rgba(122,74,0,.75);">总花费 ¥${fmtMoney(totalSpend)}${advMonthsOfIncome>0?' · ≈'+advMonthsOfIncome.toFixed(1)+'个月工资':''}</div>
+        <div style="margin-bottom:6px;">
+          <div style="font-size:14px;font-weight:700;color:#7A4A00;">🔪 欲望解剖台</div>
+          <div style="font-size:10px;color:rgba(122,74,0,.75);margin-top:2px;">总花费 ¥${fmtMoney(totalSpend)}${advMonthsOfIncome>0?' · ≈'+advMonthsOfIncome.toFixed(1)+'个月工资':''}</div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(122,74,0,.7);padding:0 0 4px 0;border-bottom:1px solid rgba(122,74,0,.15);margin-bottom:6px;">
           <span style="flex:1;">动机</span>
@@ -3737,9 +3737,9 @@ function getExpenseRows(fin, monthData){
     const motTotal = fin.motiveTotal||0;
     const open = !!state.showMotive;
     html += `<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--separator);">
-      <div onclick="toggleMotive()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:2px 0;">
-        <span style="font-size:13px;font-weight:600;">💡 为什么花（动机）</span>
-        <span style="font-size:11px;color:var(--label-3);">已归因 ¥${fmtMoney(motTotal)} · 占总花费 ${((fin.normalExpense||0)+(fin.advanceTotal||0))>0?Math.round(motTotal/((fin.normalExpense||0)+(fin.advanceTotal||0))*100):0}%${(fin.advanceTotal||0)>0?'（含越界）':''} ${open?'▾':'▸'}</span>
+      <div onclick="toggleMotive()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:2px 0;gap:8px;">
+        <span style="font-size:13px;font-weight:600;flex:0 0 auto;">💡 动机</span>
+        <span style="font-size:11px;color:var(--label-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">已归因 ¥${fmtMoney(motTotal)} · 占总花费 ${((fin.normalExpense||0)+(fin.advanceTotal||0))>0?Math.round(motTotal/((fin.normalExpense||0)+(fin.advanceTotal||0))*100):0}%${(fin.advanceTotal||0)>0?'（含越界）':''} ${open?'▾':'▸'}</span>
       </div>
       ${open ? motEnt.map(([mn,mv])=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">
