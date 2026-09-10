@@ -419,6 +419,7 @@ input,textarea{font-family:inherit;}
 .sheet-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,.35);
   opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:200;
+  touch-action:none; /* 禁止遮罩层上的手势误触返回/前进 */
 }
 .sheet-overlay.show{opacity:1;pointer-events:auto;}
 .sheet{
@@ -429,6 +430,8 @@ input,textarea{font-family:inherit;}
   transition:transform .25s cubic-bezier(.32,.72,0,1);
   z-index:201;max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   box-shadow:0 -4px 24px rgba(0,0,0,.12);
+  touch-action:pan-y;          /* 只允许面板内部上下滚动 */
+  overscroll-behavior:contain; /* 滚动不传导到 body */
 }
 .sheet.show{transform:translateY(0);}
 .sheet-handle{
@@ -1659,7 +1662,14 @@ const sheet = document.getElementById('sheet');
 const sheetContent = document.getElementById('sheetContent');
 const sheetOverlay = document.getElementById('sheetOverlay');
 sheetOverlay.onclick=closeSheet;
+let bodyScrollY = 0;
 function openSheet(html){
+  // 打开前记录并锁定 body 滚动，防止 iOS 滚动传导和手势返回
+  bodyScrollY = window.scrollY || 0;
+  document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${bodyScrollY}px`;
+  document.body.style.width = '100%';
   sheetContent.innerHTML = html;
   sheet.classList.add('show');
   sheetOverlay.classList.add('show');
@@ -1674,7 +1684,16 @@ function openSheet(html){
     });
   },100);
 }
-function closeSheet(){ sheet.classList.remove('show'); sheetOverlay.classList.remove('show'); }
+function closeSheet(){
+  sheet.classList.remove('show');
+  sheetOverlay.classList.remove('show');
+  // 恢复 body 滚动
+  document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.width = '';
+  window.scrollTo({top: bodyScrollY, behavior: 'instant'});
+}
 
 // ===== 日期格式化 =====
 function fmtDate(){
@@ -3111,11 +3130,11 @@ function openExpenseCatManage(cat){
   const allCats = [...new Set([...(m.expenses||[]).map(e=>e.cat), ...Object.keys(m.plan||{})])];
   selectedExpItemCat = allCats.find(k=>k.replace(/'/g,'').replace(/"/g,'')===cat) || cat;
   const items = (m.expenses||[]).filter(e=>e.cat===selectedExpItemCat && !e.isAdvance);
-  // 按日期倒序（YYYY-MM-DD 直接字符串比较；缺日期的排到末尾）
-  const sorted = items.slice().sort((a,b)=>{
-    const ka = a.date||'0000-00-00', kb = b.date||'0000-00-00';
-    return kb.localeCompare(ka);
-  });
+  // 旧数据可能没 date，显示时兜底为该月 1 号（不污染原数据）
+  const fallbackDate = state.currentMonth + '-01';
+  const datedItems = items.map(e=>({...e, _displayDate: e.date || fallbackDate}));
+  // 按日期倒序（YYYY-MM-DD 直接字符串比较）
+  const sorted = datedItems.slice().sort((a,b)=> b._displayDate.localeCompare(a._displayDate));
   const total = items.reduce((s,e)=>s+e.amount,0);
   const tdy = todayStr();
   openSheet(`
@@ -3129,7 +3148,7 @@ function openExpenseCatManage(cat){
           <div style="flex:1;min-width:0;">
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
               <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
-              <span style="font-size:11px;color:${e.date===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e.date===tdy?'600':'500'};">${shortDate(e.date)}</span>
+              <span style="font-size:11px;color:${e._displayDate===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e._displayDate===tdy?'600':'500'};">${shortDate(e._displayDate)}${e.date?'':'·旧'}</span>
             </div>
             <input class="sheet-input" id="catNote_${e.id}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注" style="width:140px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
           </div>
