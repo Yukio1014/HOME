@@ -1584,9 +1584,8 @@ function migrateMotives(){
     const exps = (DB.finance[mk] && DB.finance[mk].expenses) || [];
     exps.forEach(e=>{
       if(!e.motive) return;
-      // 已经是新体系且有效 → 只清理遗留的细分
+      // 已经是新体系且有效 → 保留其细分字段（motiveSub 用于自我奖励等二级展开）
       if(validIds.indexOf(e.motive) >= 0){
-        if(e.motiveSub){ delete e.motiveSub; changed = true; }
         return;
       }
       const mapped = (MOTIVE_ID_MAP[e.motive] !== undefined) ? MOTIVE_ID_MAP[e.motive] : '';
@@ -1663,11 +1662,10 @@ function calcMonthFinance(monthKey){
   let advanceTotal = 0, advanceCount = 0, normalExpense = 0;
   (m.expenses||[]).forEach(e=>{
     const k = catKeyOf(e);
-    // 消费动机（选填）：普通消费 + 超前消费 都统计（超前消费也是「为什么花」）
+    // 消费动机（选填）：普通消费 + 超前消费 都统计（超前消费也是「为什么花」），按主动机聚合
     if(e.motive){
       const mn = motiveName(e.motive) || (''+e.motive);
-      const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
-      motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
+      motiveSummary[mn] = (motiveSummary[mn]||0) + e.amount;
       motiveTotal += e.amount;
     }
     if(e.isAdvance){
@@ -2005,8 +2003,9 @@ function analyzeYearFinance(year){
   const yStr = String(year);
   const months = [];
   const catTotals = {};
-  const motiveTotals = {};   // 全年消费动机汇总（选填）
-  const motiveAdvTotals = {};// 各动机中超前/分期放大的部分
+  const motiveTotals = {};   // 全年消费动机汇总（按主动机聚合）
+  const motiveSubTotals = {};// 主动机 → {子动机: 金额}，用于经济战报二级展开
+  const motiveAdvTotals = {};// 各主动机中超前/分期放大的部分
   let motiveTotal = 0;       // 已归因金额
   let budgetTotal = 0;       // 年度总预算 = 12 个月预算之和
   let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0, totalBonus = 0;
@@ -2031,14 +2030,16 @@ function analyzeYearFinance(year){
         catTotals[k] = (catTotals[k]||0) + e.amount;
       }
     });
-    // 消费动机（选填）：普通 + 超前 都统计，并单独记录其中的超前/分期放大部分
+    // 消费动机（选填）：普通 + 超前 都统计，按主动机聚合；同时记录二级子分布与超前放大部分
     (fin.expenses||[]).forEach(e=>{
       if(!e.motive) return;
       const mn = motiveName(e.motive) || (''+e.motive);
-      const mk3 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
-      motiveTotals[mk3] = (motiveTotals[mk3]||0) + e.amount;
+      motiveTotals[mn] = (motiveTotals[mn]||0) + e.amount;
       motiveTotal += e.amount;
-      if(e.isAdvance) motiveAdvTotals[mk3] = (motiveAdvTotals[mk3]||0) + e.amount;
+      const subName = e.motiveSub || '(未细分)';
+      if(!motiveSubTotals[mn]) motiveSubTotals[mn] = {};
+      motiveSubTotals[mn][subName] = (motiveSubTotals[mn][subName]||0) + e.amount;
+      if(e.isAdvance) motiveAdvTotals[mn] = (motiveAdvTotals[mn]||0) + e.amount;
     });
     totalAdvance += monthAdvance;
     advanceCount += monthAdvanceCount;
@@ -2106,6 +2107,7 @@ function analyzeYearFinance(year){
     topCat: catKeyLabel(topCat[0]), topCatAmount: topCat[1],
     accuracy, catList, totalCatSpend,
     motiveList: Object.entries(motiveTotals).sort((a,b)=>b[1]-a[1]), motiveTotal,
+    motiveSubBreakdown: motiveSubTotals,
     motiveAdv: motiveAdvTotals,
     totalAdvance, advanceCount, advanceByMonth,
     budgetTotal, peakAdvance, debtCarryOver,
@@ -2645,10 +2647,17 @@ function renderArchiveModule(){
   const advRate   = income>0 ? Math.round(advance/income*100) : 0;
   const monthsOf  = (v)=> avgIncome>0 ? (v/avgIncome) : 0;
 
-  // 动机行（已标记降序 + 迷雾支出）
+  // 动机行（已标记降序 + 迷雾支出），兼容旧归档数据中「主动机 · 子细分」的格式
+  const rawMotiveSummary = arc.motiveSummary||{};
+  const needNormalize = Object.keys(rawMotiveSummary).some(k=> k.indexOf(' · ')>0);
+  const normalizedMotiveSummary = needNormalize ? Object.entries(rawMotiveSummary).reduce((o,[k,v])=>{
+    const main = k.split(' · ')[0];
+    o[main] = (o[main]||0) + v;
+    return o;
+  },{}) : rawMotiveSummary;
   const markedTotal = arc.motiveTotal||0;
   const fogAmount = Math.max(0, totalSpend - markedTotal);
-  const motiveRows = motiveRowsWithFog(arc.motiveSummary, totalSpend);
+  const motiveRows = motiveRowsWithFog(normalizedMotiveSummary, totalSpend);
   const motiveAdv  = arc.motiveAdv||{};
   // 自我奖励（真实总额，含超前放大部分）
   let rewardTotal = 0, rewardAdv = 0;
@@ -3000,8 +3009,9 @@ function archiveYear(year){
   // 1. 汇总该年 12 个月
   const catSummary = {};      // 大类（或旧自由文本）→ 金额
   const subSummary = {};      // 大类 · 子分类 → 金额
-  const motiveSummary = {};   // 消费动机 → 金额
-  const motiveAdvSummary = {};// 各动机中「被超前/分期放大」的部分
+  const motiveSummary = {};   // 消费动机 → 金额（按主动机聚合）
+  const motiveSubSummary = {}; // 主动机 → {子动机: 金额}
+  const motiveAdvSummary = {};// 各主动机中「被超前/分期放大」的部分
   let motiveTotal = 0;        // 已归因金额（动机为选填）
   let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0, bonusTotal = 0;
   let budgetTotal = 0;
@@ -3013,13 +3023,15 @@ function archiveYear(year){
     monthCount++;
     let monthAdvance = 0, monthExpense = 0;
     (fin.expenses||[]).forEach(e=>{
-      // 消费动机（选填）：普通 + 超前 都统计
+      // 消费动机（选填）：普通 + 超前 都统计，按主动机聚合；同时记录二级子分布
       if(e.motive){
         const mn = motiveName(e.motive) || (''+e.motive);
-        const mk2 = e.motiveSub ? (mn + ' · ' + e.motiveSub) : mn;
-        motiveSummary[mk2] = (motiveSummary[mk2]||0) + e.amount;
+        motiveSummary[mn] = (motiveSummary[mn]||0) + e.amount;
         motiveTotal += e.amount;
-        if(e.isAdvance) motiveAdvSummary[mk2] = (motiveAdvSummary[mk2]||0) + e.amount;
+        const subName = e.motiveSub || '(未细分)';
+        if(!motiveSubSummary[mn]) motiveSubSummary[mn] = {};
+        motiveSubSummary[mn][subName] = (motiveSubSummary[mn][subName]||0) + e.amount;
+        if(e.isAdvance) motiveAdvSummary[mn] = (motiveAdvSummary[mn]||0) + e.amount;
       }
       if(e.isAdvance){
         monthAdvance += e.amount;
@@ -3064,6 +3076,7 @@ function archiveYear(year){
     catSummary: catSummary,
     subSummary: subSummary,
     motiveSummary: motiveSummary,
+    motiveSubBreakdown: motiveSubSummary,
     motiveAdv: motiveAdvSummary,
     motiveTotal: motiveTotal,
     budgetTotal: budgetTotal,
@@ -3406,6 +3419,10 @@ function renderFinanceReport(year){
           // 该动机里由超前/分期放大的部分
           let advPart = 0;
           if(!isFog && fin.motiveAdv && fin.motiveAdv[mn]) advPart = fin.motiveAdv[mn];
+          // 二级子分布：只对存在子细分的主动机展开
+          const subMap = (fin.motiveSubBreakdown && fin.motiveSubBreakdown[mn]) || {};
+          const subRows = Object.entries(subMap).sort((a,b)=>b[1]-a[1]);
+          const hasSubRows = subRows.length > 1 || (subRows.length===1 && subRows[0][0] !== '(未细分)');
           return `
           <div style="margin-bottom:5px;">
             <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
@@ -3418,6 +3435,17 @@ function renderFinanceReport(year){
               <div style="background:${isFog?'linear-gradient(90deg,#C7C7CC,#8E8E93)':'linear-gradient(90deg,#FF9500,#FF3B30)'};width:${pctSpend}%;height:100%;border-radius:3px;"></div>
             </div>
             ${advPart>0 ? `<div style="font-size:10px;color:#C0392B;margin-top:2px;padding-left:2px;">↳ 其中超前/分期放大 ¥${fmtMoney(advPart)}（${mv>0?Math.round(advPart/mv*100):0}%）</div>` : ''}
+            ${hasSubRows ? `<div style="margin-top:4px;padding-left:12px;border-left:2px solid rgba(122,74,0,.2);">
+              ${subRows.map(([sn,sv])=>{
+                const subPct = mv>0 ? Math.round(sv/mv*100) : 0;
+                const label = sn==='(未细分)' ? '未指定细分' : sn;
+                return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:rgba(122,74,0,.8);margin-bottom:2px;">
+                  <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">└ ${label}</span>
+                  <span style="width:74px;text-align:right;font-weight:600;">¥${fmtMoney(sv)}</span>
+                  <span style="width:42px;text-align:right;">${subPct}%</span>
+                </div>`;
+              }).join('')}
+            </div>` : ''}
           </div>`;
         }).join('')}
         ${fogAmount>0.004 ? `<div style="font-size:10px;color:rgba(122,74,0,.65);margin-top:6px;border-top:1px solid rgba(122,74,0,.15);padding-top:5px;">💡 还有 ¥${fmtMoney(fogAmount)} 没记动机，整理旧记录时可顺手补上</div>` : ''}
