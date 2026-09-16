@@ -841,7 +841,10 @@ input,textarea{font-family:inherit;}
         <span class="nav-icon">🧘</span><span>事缓则圆</span>
       </a>
     </nav>
-    <div class="sidebar-footer">v1.0 · 浅色模式锁定</div>
+    <div class="sidebar-footer">
+      <span>v<span id="appVerLabel">3.0.1</span> · 浅色模式锁定</span>
+      <button id="checkUpdateBtn" type="button" style="margin-top:8px;width:100%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);color:#fff;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;">检查更新</button>
+    </div>
   </aside>
 
   <!-- 主容器 -->
@@ -1002,7 +1005,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.2'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -7628,6 +7631,18 @@ function showUpdateBanner(ver, notes){
   setTimeout(tick, 4000);
 }
 
+function manualCheckUpdate(){
+  if(typeof fetch !== 'function'){ toast('当前环境不支持检查更新'); return; }
+  fetch('./version.json', {cache:'no-store'})
+    .then(r => r.ok ? r.json() : null)
+    .then(info => {
+      if(!info || !info.version){ toast('无法获取版本信息'); return; }
+      if(info.version === APP_VERSION){ toast('✅ 已是最新版本 v'+APP_VERSION); return; }
+      showUpdateBanner(String(info.version), info.notes || '');
+    })
+    .catch(() => toast('检查更新失败（离线或本地打开）'));
+}
+
 // ===== 初始化 =====
 // 加载本地存储数据
 loadDB();
@@ -7635,6 +7650,11 @@ loadDB();
 switchModule('home');
 // 版本自检测 / 自刷新（异步，不阻塞渲染）
 checkAppUpdate();
+// 侧边栏：显示真实版本号 + 绑定「检查更新」
+var verLabel = document.getElementById('appVerLabel');
+if(verLabel) verLabel.textContent = APP_VERSION;
+var checkBtn = document.getElementById('checkUpdateBtn');
+if(checkBtn) checkBtn.onclick = () => { haptic(); manualCheckUpdate(); };
 // 移除启动骨架屏
 var bootEl=document.getElementById('bootScreen'); if(bootEl) bootEl.remove();
 // 延迟检查云端同步状态（不阻塞页面渲染）
