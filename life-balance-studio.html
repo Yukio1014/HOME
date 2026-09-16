@@ -1005,7 +1005,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.2'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.3'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -7539,6 +7539,15 @@ document.getElementById('settingsBtn').onclick=()=>{
         <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
         <button class="sheet-btn sheet-btn-secondary" style="width:100%;background:var(--bg);color:var(--blue);" onclick="openDataManager()">🗂️ 本地备份管理</button>
       </div>
+    </div>
+
+    <div class="sheet-field" style="border-top:1px solid var(--bg);padding-top:12px;">
+      <div class="sheet-label" style="font-weight:600;font-size:15px;color:var(--label);">🔄 版本与更新</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+        <span style="font-size:13px;color:var(--label-3);flex:1;">当前版本 v${APP_VERSION}</span>
+        <button class="sheet-btn sheet-btn-secondary" style="background:var(--bg);color:var(--blue);" onclick="closeSheet();manualCheckUpdate();">检查更新</button>
+      </div>
+      <div style="font-size:12px;color:var(--label-3);margin-top:6px;">有新版本时会自动弹出更新提示并自动刷新，无需手动操作</div>
     </div>
 
     <div class="sheet-actions">
