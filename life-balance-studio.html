@@ -1002,6 +1002,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
+const APP_VERSION = '3.0.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -7581,11 +7582,58 @@ document.getElementById('content').addEventListener('touchend',e=>{
   }
 },{passive:true});
 
+// ===== 版本自检测 / 自刷新 =====
+// 思路：仓库根目录放 version.json（含最新版本号）。App 启动后 fetch 它，
+// 与内嵌的 APP_VERSION 比对，不一致则弹出更新条，并在数秒后自动刷新页面，
+// 这样用户无需手动刷新 / 重新添加到主屏幕即可拿到新版本。
+function checkAppUpdate(){
+  if(typeof fetch !== 'function') return;
+  fetch('./version.json', {cache:'no-store'})
+    .then(r => r.ok ? r.json() : null)
+    .then(info => {
+      if(!info || !info.version) return;
+      if(info.version === APP_VERSION) return; // 已是最新
+      showUpdateBanner(String(info.version), info.notes || '');
+    })
+    .catch(() => {}); // 离线 / 本地 file:// 打开 / 跨域失败，静默忽略
+}
+
+function showUpdateBanner(ver, notes){
+  if(document.getElementById('updateBanner')) return;
+  const safe = String(notes).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+  const bar = document.createElement('div');
+  bar.id = 'updateBanner';
+  bar.innerHTML =
+    '<div style="flex:1;padding-right:8px;">🎉 已更新到 <b>v'+ver+'</b>'+(safe?(' · '+safe):'')+'，点击立即刷新</div>'+
+    '<button id="updNow">立即刷新</button>'+
+    '<button id="updLater" aria-label="稍后">×</button>';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;display:flex;align-items:center;gap:8px;'+
+    'background:linear-gradient(90deg,#ff9f0a,#ff375f);color:#fff;font-size:13px;padding:10px 12px;'+
+    'box-shadow:0 4px 16px rgba(0,0,0,.35);';
+  const btnCss = 'background:rgba(255,255,255,.25);border:0;color:#fff;border-radius:8px;'+
+    'padding:5px 12px;font-size:13px;cursor:pointer;white-space:nowrap;';
+  document.getElementById('updNow').style.cssText = btnCss;
+  document.getElementById('updLater').style.cssText = 'background:transparent;border:0;color:#fff;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;';
+  document.body.appendChild(bar);
+  document.getElementById('updNow').onclick = () => location.reload(true);
+  document.getElementById('updLater').onclick = () => bar.remove();
+  // 自刷新：默认 4 秒后自动刷新；若此刻正打开编辑弹层，则延后重试（最多约 2 分钟），避免误清输入
+  let tries = 0;
+  const tick = () => {
+    if(!document.getElementById('updateBanner')) return; // 已被用户关闭
+    if(document.querySelector('.sheet.show')){ if(tries++ < 40) setTimeout(tick, 3000); return; }
+    location.reload(true);
+  };
+  setTimeout(tick, 4000);
+}
+
 // ===== 初始化 =====
 // 加载本地存储数据
 loadDB();
 // 初始化
 switchModule('home');
+// 版本自检测 / 自刷新（异步，不阻塞渲染）
+checkAppUpdate();
 // 移除启动骨架屏
 var bootEl=document.getElementById('bootScreen'); if(bootEl) bootEl.remove();
 // 延迟检查云端同步状态（不阻塞页面渲染）
