@@ -1002,7 +1002,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -7612,9 +7612,10 @@ function showUpdateBanner(ver, notes){
     'box-shadow:0 4px 16px rgba(0,0,0,.35);';
   const btnCss = 'background:rgba(255,255,255,.25);border:0;color:#fff;border-radius:8px;'+
     'padding:5px 12px;font-size:13px;cursor:pointer;white-space:nowrap;';
+  // 先加入文档，后续 getElementById 才能找到内部按钮
+  document.body.appendChild(bar);
   document.getElementById('updNow').style.cssText = btnCss;
   document.getElementById('updLater').style.cssText = 'background:transparent;border:0;color:#fff;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;';
-  document.body.appendChild(bar);
   document.getElementById('updNow').onclick = () => location.reload(true);
   document.getElementById('updLater').onclick = () => bar.remove();
   // 自刷新：默认 4 秒后自动刷新；若此刻正打开编辑弹层，则延后重试（最多约 2 分钟），避免误清输入
