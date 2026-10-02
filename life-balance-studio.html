@@ -944,7 +944,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.6'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.7'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6198,6 +6198,7 @@ function taskCardHtml(t){
     <div class="task-card-actions">${actions}</div>
     <div class="task-card-title">${title}</div>
     <div class="task-card-sub">${sub}</div>
+    ${t.createdAt?`<div class="task-card-sub">📅 创建于 ${escTask(t.createdAt)}</div>`:''}
     ${note}
   </div>`;
 }
@@ -6205,7 +6206,8 @@ function taskCardHtml(t){
 function openTaskAdd(){
   openSheet(`<div class="task-modal-title">➕ 新增委托</div>
     <div class="task-field"><label>事项名称（必填）</label><input id="taskName" placeholder="如：面霜 / 洗牙 / 医美" maxlength="40"></div>
-    <div class="task-field"><label>整体备注（可选）</label><textarea id="taskNote" rows="2" placeholder="如：整体等双11凑单"></textarea></div>
+    <div class="task-field"><label>创建日期</label><input id="taskCreated" type="date" value="${todayStr()}"></div>
+    <div class="task-field"><label>整体备注（可选）</label><textarea id="taskNote" rows="2" placeholder="如：整体等双11凑单 / 情报链接也写这里"></textarea></div>
     <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="closeSheet()">取消</button><button class="task-btn-primary" onclick="saveTaskAdd()">创建</button></div>`);
   setTimeout(()=>{const e=document.getElementById('taskName'); if(e) e.focus();},120);
 }
@@ -6213,8 +6215,9 @@ function saveTaskAdd(){
   const name=document.getElementById('taskName').value.trim();
   if(!name){ toast('请输入事项名称'); return; }
   const note=document.getElementById('taskNote').value.trim();
+  const created=document.getElementById('taskCreated').value || todayStr();
   haptic();
-  DB.tasks.push({id:taskNextId(),name,note,createdAt:todayStr(),plans:[],status:'待接',lockedPlanId:null});
+  DB.tasks.push({id:taskNextId(),name,note,createdAt:created,plans:[],status:'待接',lockedPlanId:null});
   saveDB(); closeSheet(); renderTaskCols();
   toast('已创建，去添加备选方案吧');
 }
@@ -6226,8 +6229,7 @@ function renderTaskDetail(id){
   let ph='';
   for(const p of plans){
     const st = p.status==='done' ? '✅' : '🟢';
-    const intel = p.intel ? `<a href="${escTask(p.intel)}" target="_blank" rel="noopener" style="color:var(--blue)">🔗情报</a>` : '';
-    const meta=[ '¥'+fmtMoney(+p.amount||0), p.note?('备注：'+escTask(p.note)):'', intel ].filter(Boolean).join(' · ');
+    const meta=[ '¥'+fmtMoney(+p.amount||0), p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
     ph+=`<div class="task-plan">
       <div class="task-plan-status">${st}</div>
       <div class="task-plan-main">
@@ -6241,7 +6243,7 @@ function renderTaskDetail(id){
       </div>
     </div>`;
   }
-  openSheet(`<div class="task-modal-title">${escTask(t.name)} · 备选情报</div>
+  openSheet(`<div class="task-modal-title">${escTask(t.name)} · 备选方案</div>
     ${t.note?`<div class="task-card-note" style="margin-bottom:10px">📝 ${escTask(t.note)}</div>`:''}
     ${t.status!=='待接'?`<div class="task-card-sub" style="margin-bottom:8px">当前状态：${t.status==='进行中'?'⚔️ 任务进行中':t.status==='凯旋'?'🏆 已凯旋':'🚫 已搁置'}</div>`:''}
     <div id="planList">${ph||'<div class="task-empty">暂无备选方案，点击下方添加</div>'}</div>
@@ -6260,11 +6262,8 @@ function taskDelPlan(id,pid){
 function openPlanAdd(id){
   openSheet(`<div class="task-modal-title">➕ 添加备选方案</div>
     <div class="task-field"><label>方案名称</label><input id="planName" placeholder="如：A品牌替换装" maxlength="30"></div>
-    <div class="task-row">
-      <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" placeholder="599"></div>
-      <div class="task-field"><label>情报链接(可选)</label><input id="planIntel" placeholder="淘宝/小红书链接"></div>
-    </div>
-    <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2" placeholder="如：双11买一送一"></textarea></div>
+    <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" placeholder="599"></div>
+    <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2" placeholder="如：双11买一送一 / 情报链接也写这里"></textarea></div>
     <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="renderTaskDetail(${id})">取消</button><button class="task-btn-primary" onclick="savePlanAdd(${id})">保存</button></div>`);
   setTimeout(()=>{const e=document.getElementById('planName'); if(e) e.focus();},120);
 }
@@ -6273,21 +6272,17 @@ function savePlanAdd(id){
   const name=document.getElementById('planName').value.trim();
   if(!name){ toast('请输入方案名称'); return; }
   const amount=parseFloat(document.getElementById('planAmount').value)||0;
-  const intel=document.getElementById('planIntel').value.trim();
   const note=document.getElementById('planNote').value.trim();
   haptic();
   const pid = t.plans.length? Math.max(...t.plans.map(p=>p.id))+1 : 1;
-  t.plans.push({id:pid,name,amount,intel,note,status:'open',pinned:false});
+  t.plans.push({id:pid,name,amount,intel:'',note,status:'open',pinned:false});
   saveDB(); renderTaskDetail(id); renderTaskCols();
 }
 function openPlanEdit(id,pid){
   const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
   openSheet(`<div class="task-modal-title">编辑备选方案</div>
     <div class="task-field"><label>方案名称</label><input id="planName" value="${escTask(p.name)}" maxlength="30"></div>
-    <div class="task-row">
-      <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" value="${+p.amount||0}"></div>
-      <div class="task-field"><label>情报链接(可选)</label><input id="planIntel" value="${escTask(p.intel)}"></div>
-    </div>
+    <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" value="${+p.amount||0}"></div>
     <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2">${escTask(p.note)}</textarea></div>
     <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="renderTaskDetail(${id})">取消</button><button class="task-btn-primary" onclick="savePlanEdit(${id},${pid})">保存</button></div>`);
 }
@@ -6296,7 +6291,7 @@ function savePlanEdit(id,pid){
   const name=document.getElementById('planName').value.trim();
   if(!name){ toast('请输入方案名称'); return; }
   p.name=name; p.amount=parseFloat(document.getElementById('planAmount').value)||0;
-  p.intel=document.getElementById('planIntel').value.trim(); p.note=document.getElementById('planNote').value.trim();
+  p.intel=''; p.note=document.getElementById('planNote').value.trim();
   haptic(); saveDB(); renderTaskDetail(id); renderTaskCols();
 }
 
