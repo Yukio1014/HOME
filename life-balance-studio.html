@@ -967,7 +967,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.8'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.9'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6948,6 +6948,11 @@ document.getElementById('content').addEventListener('touchend',e=>{
 // 思路：仓库根目录放 version.json（含最新版本号）。App 启动后 fetch 它，
 // 与内嵌的 APP_VERSION 比对，不一致则弹出更新条，并在数秒后自动刷新页面，
 // 这样用户无需手动刷新 / 重新添加到主屏幕即可拿到新版本。
+function reloadFresh(){
+  // 带时间戳参数绕过浏览器/CDN 缓存，确保拿到仓库里的最新 HTML
+  const u = location.href.split('#')[0].split('?')[0];
+  location.href = u + '?_=' + Date.now();
+}
 function checkAppUpdate(){
   if(typeof fetch !== 'function') return;
   fetch('./version.json', {cache:'no-store'})
@@ -6978,14 +6983,14 @@ function showUpdateBanner(ver, notes){
   document.body.appendChild(bar);
   document.getElementById('updNow').style.cssText = btnCss;
   document.getElementById('updLater').style.cssText = 'background:transparent;border:0;color:#fff;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;';
-  document.getElementById('updNow').onclick = () => location.reload(true);
+  document.getElementById('updNow').onclick = () => reloadFresh();
   document.getElementById('updLater').onclick = () => bar.remove();
   // 自刷新：默认 4 秒后自动刷新；若此刻正打开编辑弹层，则延后重试（最多约 2 分钟），避免误清输入
   let tries = 0;
   const tick = () => {
     if(!document.getElementById('updateBanner')) return; // 已被用户关闭
     if(document.querySelector('.sheet.show')){ if(tries++ < 40) setTimeout(tick, 3000); return; }
-    location.reload(true);
+    reloadFresh();
   };
   setTimeout(tick, 4000);
 }
