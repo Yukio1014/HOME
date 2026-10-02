@@ -407,16 +407,28 @@ input,textarea{font-family:inherit;}
 .task-icon-btn{width:38px;height:38px;border-radius:11px;background:rgba(118,118,128,.12);font-size:17px;display:flex;align-items:center;justify-content:center;border:none;}
 .task-search-row{margin-bottom:12px;}
 .task-empty{font-size:13px;color:var(--label-3);padding:8px 2px;}
-.task-card{background:var(--card);border-radius:var(--radius-lg);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-card);}
-.task-card-actions{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
-.task-card-actions button{font-size:12px;padding:5px 10px;border-radius:8px;background:rgba(118,118,128,.12);color:var(--label-2);font-weight:600;white-space:nowrap;}
-.task-card-actions .primary{background:var(--blue);color:#fff;}
-.task-card-actions .warn{background:rgba(255,149,0,.16);color:#FF9500;}
-.task-card-actions .danger{background:rgba(255,59,48,.12);color:var(--red);}
-.task-card-title{font-size:16px;font-weight:700;}
+.task-card{perspective:1200px;margin-bottom:12px;}
+.task-flip-inner{position:relative;transform-style:preserve-3d;transition:transform .4s ease;}
+.task-flip.on .task-flip-inner{transform:rotateY(180deg);}
+.task-face{backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--card);border-radius:var(--radius-lg);padding:12px 14px;box-shadow:var(--shadow-card);}
+.task-face.back{position:absolute;top:0;left:0;width:100%;transform:rotateY(180deg);box-sizing:border-box;}
+.task-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.task-card-title{font-size:16px;font-weight:700;flex:1;min-width:0;word-break:break-word;padding-top:4px;}
+.task-card-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.task-card-btns button{font-size:12px;padding:5px 10px;border-radius:9px;font-weight:700;border:none;white-space:nowrap;}
+.tb-edit{background:rgba(0,122,255,.13);color:var(--blue);}
+.tb-go{background:#FF9500;color:#fff;}
+.tb-drop{background:rgba(118,118,128,.13);color:var(--label-2);}
+.tb-del{background:rgba(255,59,48,.12);color:var(--red);}
+.tb-win{background:#FFB300;color:#fff;}
+.tb-re{background:rgba(88,86,214,.14);color:#5856D8;}
+.task-card-info{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--label-2);}
+.task-card-info .price{color:var(--blue);font-weight:700;}
+.task-flip-hint{font-size:11px;color:var(--label-3);margin-top:8px;text-align:right;}
+.task-plan-back{display:flex;align-items:flex-start;gap:8px;padding:9px 0;border-top:.5px solid var(--separator);}
+.task-plan-back:first-child{border-top:none;padding-top:2px;}
 .task-card-sub{font-size:13px;color:var(--label-3);margin-top:3px;}
 .task-card-note{font-size:12px;color:var(--label-3);margin-top:4px;font-style:italic;}
-.task-card-pin{font-size:11px;color:#FF9500;font-weight:600;}
 .task-plan{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-top:.5px solid var(--separator);}
 .task-plan:first-child{border-top:none;}
 .task-plan-status{font-size:16px;margin-top:1px;width:18px;text-align:center;}
@@ -439,6 +451,17 @@ input,textarea{font-family:inherit;}
 .task-radio input{width:18px;height:18px;}
 .task-clear-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:.5px solid var(--separator);}
 .task-clear-item:first-child{border-top:none;}
+.task-form-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.task-form-head .task-modal-title{margin-bottom:0;}
+.task-form-headbtns{display:flex;gap:8px;}
+.task-form-headbtns button{font-size:13px;font-weight:700;padding:8px 12px;border-radius:9px;border:none;white-space:nowrap;}
+.tf-add{background:#FFCC00;color:#5c4a00;}
+.tf-save{background:var(--blue);color:#fff;}
+.tf-cancel{background:rgba(118,118,128,.14);color:var(--label);}
+.tf-plan{border:1px solid var(--separator);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--bg);}
+.tf-plan-row{display:flex;gap:8px;align-items:center;}
+.tf-plan-row input{flex:1;min-width:0;border:1px solid var(--separator);border-radius:9px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--label);}
+.tf-plan-del{background:rgba(255,59,48,.12);color:var(--red);border:none;border-radius:8px;font-size:12px;padding:6px 9px;font-weight:700;flex-shrink:0;}
 
 /* ===== 底部抽屉 ===== */
 .sheet-overlay{
@@ -944,7 +967,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.7'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.8'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6095,13 +6118,6 @@ function planMin(t){ const ps=t.plans||[]; if(!ps.length) return 0; return Math.
 function planMax(t){ const ps=t.plans||[]; if(!ps.length) return 0; return Math.max(...ps.map(p=>+p.amount||0)); }
 function taskAbandonAmt(t){ const ps=t.plans||[]; if(t.lockedPlanId){ const lp=ps.find(p=>p.id===t.lockedPlanId); if(lp) return +lp.amount||0; } return planMin(t); }
 function sortPlans(t){ return (t.plans||[]).slice().sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)); }
-function amountText(t){
-  const ps=t.plans||[];
-  if(!ps.length) return '暂无备选方案';
-  if(ps.length===1) return '预估金额 ¥'+fmtMoney(+ps[0].amount||0);
-  return '待定方案 '+ps.length+' 个，价格区间 ¥'+fmtMoney(planMin(t))+'~¥'+fmtMoney(planMax(t));
-}
-
 const TASK_TABS=[
   {key:'待接',label:'委托待接',color:'#007AFF'},
   {key:'进行中',label:'任务进行',color:'#5856D8'},
@@ -6144,7 +6160,7 @@ function renderTaskCols(){
   const b=banners[def.key];
   root.innerHTML=`
     <div class="task-tabs">${tabs}</div>
-    <div class="task-banner ${b.cls}">${b.text}</div>
+    ${(def.key==='待接'||def.key==='搁置')?`<div class="task-banner ${b.cls}">${b.text}</div>`:''}
     <div class="task-toolbar"><button class="task-icon-btn" title="搜索" onclick="taskToggleSearch()">🔍</button>${actBtn}</div>
     ${toolbar}
     <div id="taskList"></div>`;
@@ -6172,127 +6188,131 @@ function renderTaskList(){
   box.innerHTML=list.map(taskCardHtml).join('');
 }
 
+function taskBackHtml(t){
+  const ps=sortPlans(t);
+  if(!ps.length) return `<div class="task-empty">暂无备选方案</div>`;
+  return ps.map(p=>{
+    const mark = p.status==='done' ? '✅' : (t.status==='进行中'&&p.id===t.lockedPlanId ? '⚔️' : '🟢');
+    const meta=[ '¥'+fmtMoney(+p.amount||0), p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
+    return `<div class="task-plan-back"><span class="task-plan-status">${mark}</span>
+      <div style="flex:1;min-width:0"><div class="task-plan-name">${escTask(p.name)}</div><div class="task-plan-meta">${meta}</div></div></div>`;
+  }).join('');
+}
 function taskCardHtml(t){
-  const id=t.id;
-  let actions=''; let title=''; let sub=amountText(t); let note='';
-  if(t.note) note=`<div class="task-card-note">📝 ${escTask(t.note)}</div>`;
+  const id=t.id; const ps=t.plans||[];
+  let btns=''; let priceLine=''; let title=escTask(t.name);
   if(t.status==='待接'){
-    actions=`<button class="primary" onclick="openTaskDetail(${id})">查看/编辑</button><button class="warn" onclick="taskStrike(${id})">⚔️ 出击</button><button onclick="taskAbandon(${id})">🚫 放弃</button><button class="danger" onclick="taskDestroy(${id})">🗑️</button>`;
-    title=escTask(t.name);
+    btns=`<button class="tb-edit" onclick="event.stopPropagation();openTaskEdit(${id})">编辑</button><button class="tb-go" onclick="event.stopPropagation();taskStrike(${id})">⚔️ 出击</button><button class="tb-drop" onclick="event.stopPropagation();taskAbandon(${id})">放弃</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
+    priceLine= ps.length? (ps.length===1?'💰 价格 ¥'+fmtMoney(planMin(t)):'💰 价格区间 ¥'+fmtMoney(planMin(t))+' ~ ¥'+fmtMoney(planMax(t))) : '💰 暂无方案，点「编辑」添加';
   } else if(t.status==='进行中'){
-    const lp=(t.plans||[]).find(p=>p.id===t.lockedPlanId);
-    actions=`<button class="primary" onclick="taskWin(${id})">🏆 凯旋结算</button><button class="danger" onclick="taskAbandon(${id})">🚫 放弃</button>`;
+    const lp=ps.find(p=>p.id===t.lockedPlanId);
+    btns=`<button class="tb-win" onclick="event.stopPropagation();taskWin(${id})">🏆 凯旋</button><button class="tb-drop" onclick="event.stopPropagation();taskAbandon(${id})">放弃</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
     title=escTask(t.name)+(lp?`（${escTask(lp.name)}）`:'');
-    sub='预估赏金 ¥'+fmtMoney(+(lp?lp.amount:planMin(t))||0);
+    priceLine='💰 赏金 ¥'+fmtMoney(+(lp?lp.amount:planMin(t))||0);
   } else if(t.status==='凯旋'){
-    const lp=(t.plans||[]).find(p=>p.id===t.lockedPlanId);
-    actions=`<button class="warn" onclick="taskRestart(${id})">🔁 重启委托</button><button class="danger" onclick="taskDestroy(${id})">🗑️ 销毁</button>`;
-    title=escTask(t.name);
-    sub='✅ 已凯旋：'+(lp?escTask(lp.name):'—')+' · 赏金 ¥'+fmtMoney(+(lp?lp.amount:0)||0);
-  } else if(t.status==='搁置'){
-    actions=`<button class="warn" onclick="taskRestart(${id})">🔁 重启委托</button><button class="danger" onclick="taskDestroy(${id})">🗑️ 销毁</button>`;
-    title=escTask(t.name);
-    sub='放下省下 ¥'+fmtMoney(taskAbandonAmt(t));
+    const lp=ps.find(p=>p.id===t.lockedPlanId);
+    btns=`<button class="tb-re" onclick="event.stopPropagation();taskRestart(${id})">🔁 重启</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
+    priceLine='✅ '+(lp?escTask(lp.name):'—')+' · 赏金 ¥'+fmtMoney(+(lp?lp.amount:0)||0);
+  } else {
+    btns=`<button class="tb-re" onclick="event.stopPropagation();taskRestart(${id})">🔁 重启</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
+    priceLine='💰 放下省下 ¥'+fmtMoney(taskAbandonAmt(t));
   }
-  return `<div class="task-card">
-    <div class="task-card-actions">${actions}</div>
-    <div class="task-card-title">${title}</div>
-    <div class="task-card-sub">${sub}</div>
-    ${t.createdAt?`<div class="task-card-sub">📅 创建于 ${escTask(t.createdAt)}</div>`:''}
-    ${note}
+  const front=`<div class="task-face front">
+    <div class="task-card-head"><span class="task-card-title">${title}</span><span class="task-card-btns">${btns}</span></div>
+    <div class="task-card-info">
+      ${t.createdAt?`<div>📅 创建日期 ${escTask(t.createdAt)}</div>`:''}
+      <div class="price">${priceLine}</div>
+      ${t.note?`<div>📝 ${escTask(t.note)}</div>`:''}
+    </div>
+    ${ps.length?`<div class="task-flip-hint">👆 点卡片翻面看 ${ps.length} 个备选方案</div>`:''}
+  </div>`;
+  const back=`<div class="task-face back"><div class="task-card-title" style="margin-bottom:4px">📋 备选方案</div>${taskBackHtml(t)}</div>`;
+  return `<div class="task-card"${ps.length?` onclick="taskCardTap(${id})"`:''}>
+    <div class="task-flip" id="taskFlip${id}"><div class="task-flip-inner">${front}${back}</div></div>
   </div>`;
 }
-
-function openTaskAdd(){
-  openSheet(`<div class="task-modal-title">➕ 新增委托</div>
-    <div class="task-field"><label>事项名称（必填）</label><input id="taskName" placeholder="如：面霜 / 洗牙 / 医美" maxlength="40"></div>
-    <div class="task-field"><label>创建日期</label><input id="taskCreated" type="date" value="${todayStr()}"></div>
-    <div class="task-field"><label>整体备注（可选）</label><textarea id="taskNote" rows="2" placeholder="如：整体等双11凑单 / 情报链接也写这里"></textarea></div>
-    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="closeSheet()">取消</button><button class="task-btn-primary" onclick="saveTaskAdd()">创建</button></div>`);
-  setTimeout(()=>{const e=document.getElementById('taskName'); if(e) e.focus();},120);
+function taskCardTap(id){
+  const t=taskById(id); if(!t||!(t.plans||[]).length) return;
+  const el=document.getElementById('taskFlip'+id); if(!el) return;
+  const on=el.classList.toggle('on');
+  const front=el.querySelector('.task-face.front'), back=el.querySelector('.task-face.back');
+  el.style.height = on ? Math.max(front.offsetHeight, back.scrollHeight)+'px' : '';
 }
-function saveTaskAdd(){
-  const name=document.getElementById('taskName').value.trim();
-  if(!name){ toast('请输入事项名称'); return; }
-  const note=document.getElementById('taskNote').value.trim();
-  const created=document.getElementById('taskCreated').value || todayStr();
+
+function openTaskAdd(){ taskOpenForm(null); }
+function openTaskEdit(id){ taskOpenForm(id); }
+function taskOpenForm(id){
+  const t = id? taskById(id) : null;
+  state.taskFormPlans = t? JSON.parse(JSON.stringify(t.plans||[])) : [];
+  openSheet(`<div class="task-form-head">
+      <div class="task-modal-title">${t?'✏️ 编辑委托':'➕ 新增委托'}</div>
+      <div class="task-form-headbtns">
+        <button class="tf-add" onclick="taskFormAddPlan()">添加备选</button>
+        <button class="tf-save" onclick="taskFormSave(${t?t.id:0})">${t?'保存':'创建'}</button>
+        <button class="tf-cancel" onclick="closeSheet()">取消</button>
+      </div>
+    </div>
+    <div class="task-field"><label>名称（必填）</label><input id="tfName" placeholder="如：面霜 / 洗牙 / 医美" maxlength="40" value="${t?escTask(t.name):''}"></div>
+    <div class="task-field"><label>创建日期</label><input id="tfDate" type="date" value="${t?(t.createdAt||todayStr()):todayStr()}"></div>
+    <div class="task-field"><label>整体备注（可选，情报链接也写这里）</label><textarea id="tfNote" rows="2" placeholder="如：整体等双11凑单 / 淘宝链接…">${t?escTask(t.note||''):''}</textarea></div>
+    <div id="tfRange" class="task-card-sub" style="margin:2px 0 8px;color:var(--blue);font-weight:700;"></div>
+    <div id="tfPlanList"></div>`);
+  taskRenderFormPlans();
+  setTimeout(()=>{const e=document.getElementById('tfName'); if(e) e.focus();},120);
+}
+function taskFormAddPlan(){
+  state.taskFormPlans.push({name:'',amount:'',note:'',status:'open',pinned:false});
+  taskRenderFormPlans();
+  const box=document.getElementById('tfPlanList');
+  if(box) box.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function taskFormDelPlan(i){
+  state.taskFormPlans.splice(i,1); haptic(); taskRenderFormPlans();
+}
+function taskFormPlanInput(i,k,v){
+  if(state.taskFormPlans[i]){ state.taskFormPlans[i][k]=v; taskUpdateRange(); }
+}
+function taskRenderFormPlans(){
+  const box=document.getElementById('tfPlanList'); if(!box) return;
+  box.innerHTML = state.taskFormPlans.length ? state.taskFormPlans.map((p,i)=>`
+    <div class="tf-plan">
+      <div class="tf-plan-row">
+        <input placeholder="方案名称（如 A品牌替换装）" value="${escTask(p.name||'')}" oninput="taskFormPlanInput(${i},'name',this.value)">
+        <button class="tf-plan-del" onclick="taskFormDelPlan(${i})">删除</button>
+      </div>
+      <div class="tf-plan-row" style="margin-top:8px">
+        <input type="number" inputmode="decimal" placeholder="价格 ¥" value="${p.amount??''}" oninput="taskFormPlanInput(${i},'amount',this.value)">
+        <input placeholder="备注（链接也写这里）" value="${escTask(p.note||'')}" oninput="taskFormPlanInput(${i},'note',this.value)">
+      </div>
+    </div>`).join('') : '<div class="task-empty">还没有备选方案，点右上「添加备选」</div>';
+  taskUpdateRange();
+}
+function taskUpdateRange(){
+  const el=document.getElementById('tfRange'); if(!el) return;
+  const amts=state.taskFormPlans.map(p=>+p.amount||0).filter(v=>v>0);
+  el.textContent = !amts.length ? '💰 尚无价格，添加方案后自动算价格区间'
+    : amts.length===1 ? '💰 价格 ¥'+fmtMoney(amts[0])
+    : '💰 价格区间 ¥'+fmtMoney(Math.min(...amts))+' ~ ¥'+fmtMoney(Math.max(...amts));
+}
+function taskFormSave(id){
+  const name=document.getElementById('tfName').value.trim();
+  if(!name){ toast('请输入名称'); return; }
+  const date=document.getElementById('tfDate').value||todayStr();
+  const note=document.getElementById('tfNote').value.trim();
+  const plans=state.taskFormPlans.filter(p=>p.name&&String(p.name).trim());
   haptic();
-  DB.tasks.push({id:taskNextId(),name,note,createdAt:created,plans:[],status:'待接',lockedPlanId:null});
-  saveDB(); closeSheet(); renderTaskCols();
-  toast('已创建，去添加备选方案吧');
-}
-
-function openTaskDetail(id){ renderTaskDetail(id); }
-function renderTaskDetail(id){
-  const t=taskById(id); if(!t) return;
-  const plans=sortPlans(t);
-  let ph='';
-  for(const p of plans){
-    const st = p.status==='done' ? '✅' : '🟢';
-    const meta=[ '¥'+fmtMoney(+p.amount||0), p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
-    ph+=`<div class="task-plan">
-      <div class="task-plan-status">${st}</div>
-      <div class="task-plan-main">
-        <div class="task-plan-name">${escTask(p.name)} ${p.pinned?'<span class="task-card-pin">★置顶</span>':''}</div>
-        <div class="task-plan-meta">${meta}</div>
-      </div>
-      <div class="task-plan-actions">
-        <button onclick="taskTogglePin(${id},${p.id})">${p.pinned?'取消置顶':'置顶'}</button>
-        <button onclick="openPlanEdit(${id},${p.id})">编辑</button>
-        <button onclick="taskDelPlan(${id},${p.id})">删除</button>
-      </div>
-    </div>`;
+  if(id){
+    const t=taskById(id); if(!t) return;
+    let nid=(t.plans||[]).reduce((m,p)=>Math.max(m,+p.id||0),0)+1;
+    plans.forEach(p=>{ if(!p.id){ p.id=nid++; } p.amount=+p.amount||0; p.status=p.status||'open'; p.pinned=!!p.pinned; });
+    t.name=name; t.note=note; t.createdAt=date; t.plans=plans;
+    toast('已保存');
+  } else {
+    let nid=1; plans.forEach(p=>{ p.id=nid++; p.amount=+p.amount||0; p.status='open'; p.pinned=!!p.pinned; });
+    DB.tasks.push({id:taskNextId(),name,note,createdAt:date,plans,status:'待接',lockedPlanId:null});
+    toast('已创建');
   }
-  openSheet(`<div class="task-modal-title">${escTask(t.name)} · 备选方案</div>
-    ${t.note?`<div class="task-card-note" style="margin-bottom:10px">📝 ${escTask(t.note)}</div>`:''}
-    ${t.status!=='待接'?`<div class="task-card-sub" style="margin-bottom:8px">当前状态：${t.status==='进行中'?'⚔️ 任务进行中':t.status==='凯旋'?'🏆 已凯旋':'🚫 已搁置'}</div>`:''}
-    <div id="planList">${ph||'<div class="task-empty">暂无备选方案，点击下方添加</div>'}</div>
-    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="openPlanAdd(${id})">➕ 添加新方案</button><button class="task-btn-primary" onclick="closeSheet()">返回</button></div>`);
-}
-function taskTogglePin(id,pid){
-  const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
-  p.pinned=!p.pinned; haptic(); saveDB(); renderTaskDetail(id);
-}
-function taskDelPlan(id,pid){
-  const t=taskById(id); if(!t) return;
-  t.plans=t.plans.filter(x=>x.id!==pid);
-  if(t.lockedPlanId===pid) t.lockedPlanId=null;
-  haptic(); saveDB(); renderTaskDetail(id); renderTaskCols();
-}
-function openPlanAdd(id){
-  openSheet(`<div class="task-modal-title">➕ 添加备选方案</div>
-    <div class="task-field"><label>方案名称</label><input id="planName" placeholder="如：A品牌替换装" maxlength="30"></div>
-    <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" placeholder="599"></div>
-    <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2" placeholder="如：双11买一送一 / 情报链接也写这里"></textarea></div>
-    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="renderTaskDetail(${id})">取消</button><button class="task-btn-primary" onclick="savePlanAdd(${id})">保存</button></div>`);
-  setTimeout(()=>{const e=document.getElementById('planName'); if(e) e.focus();},120);
-}
-function savePlanAdd(id){
-  const t=taskById(id); if(!t) return;
-  const name=document.getElementById('planName').value.trim();
-  if(!name){ toast('请输入方案名称'); return; }
-  const amount=parseFloat(document.getElementById('planAmount').value)||0;
-  const note=document.getElementById('planNote').value.trim();
-  haptic();
-  const pid = t.plans.length? Math.max(...t.plans.map(p=>p.id))+1 : 1;
-  t.plans.push({id:pid,name,amount,intel:'',note,status:'open',pinned:false});
-  saveDB(); renderTaskDetail(id); renderTaskCols();
-}
-function openPlanEdit(id,pid){
-  const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
-  openSheet(`<div class="task-modal-title">编辑备选方案</div>
-    <div class="task-field"><label>方案名称</label><input id="planName" value="${escTask(p.name)}" maxlength="30"></div>
-    <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" value="${+p.amount||0}"></div>
-    <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2">${escTask(p.note)}</textarea></div>
-    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="renderTaskDetail(${id})">取消</button><button class="task-btn-primary" onclick="savePlanEdit(${id},${pid})">保存</button></div>`);
-}
-function savePlanEdit(id,pid){
-  const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
-  const name=document.getElementById('planName').value.trim();
-  if(!name){ toast('请输入方案名称'); return; }
-  p.name=name; p.amount=parseFloat(document.getElementById('planAmount').value)||0;
-  p.intel=''; p.note=document.getElementById('planNote').value.trim();
-  haptic(); saveDB(); renderTaskDetail(id); renderTaskCols();
+  saveDB(); closeSheet(); renderTaskCols();
 }
 
 function taskStrike(id){
