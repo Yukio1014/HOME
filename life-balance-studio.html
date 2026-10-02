@@ -327,32 +327,6 @@ input,textarea{font-family:inherit;}
   position:fixed;width:8px;height:8px;border-radius:50%;
   pointer-events:none;z-index:999;
 }
-
-/* ===== 家庭板块 ===== */
-.avatar-wall{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
-.avatar-card{
-  background:var(--card);border-radius:var(--radius-lg);
-  padding:20px;text-align:center;box-shadow:var(--shadow-card);
-  perspective:800px;cursor:pointer;
-}
-.avatar-circle{
-  width:72px;height:72px;border-radius:50%;margin:0 auto 10px;
-  display:flex;align-items:center;justify-content:center;
-  font-size:26px;color:#fff;font-weight:600;
-}
-.avatar-name{font-size:17px;font-weight:600;}
-.avatar-role{font-size:13px;color:var(--label-3);margin-top:2px;}
-.avatar-back{
-  text-align:left;font-size:14px;color:var(--label-2);
-}
-.avatar-back-row{margin-bottom:8px;}
-.avatar-back-label{font-size:12px;color:var(--label-3);}
-.bday-badge{
-  display:inline-block;background:#FFEBEB;color:var(--red);
-  padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600;
-  margin-top:6px;
-}
-
 /* ===== 健康板块 ===== */
 .search-bar{
   position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5;
@@ -414,6 +388,51 @@ input,textarea{font-family:inherit;}
   width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;
   display:flex;align-items:center;justify-content:center;flex-shrink:0;
 }
+
+/* ===== 任务委托板块 ===== */
+.task-topbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.task-add-btn{background:var(--blue);color:#fff;border-radius:10px;padding:8px 12px;font-size:14px;font-weight:600;white-space:nowrap;}
+.task-search-wrap{flex:1;background:rgba(118,118,128,.12);border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:8px;min-width:0;}
+.task-search{flex:1;border:none;background:transparent;font-size:15px;min-width:0;}
+.task-search:focus{outline:none;}
+.task-clear-btn{background:rgba(255,59,48,.12);color:var(--red);border-radius:10px;padding:8px 12px;font-size:14px;font-weight:600;white-space:nowrap;}
+.task-cols{display:flex;flex-direction:column;gap:18px;}
+.task-col-head{font-size:15px;font-weight:700;margin-bottom:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.task-col-stat{font-size:12px;font-weight:500;color:var(--label-3);}
+.task-col-stat.green{color:#34C759;}
+.task-empty{font-size:13px;color:var(--label-3);padding:8px 2px;}
+.task-card{background:var(--card);border-radius:var(--radius-lg);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-card);}
+.task-card-actions{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+.task-card-actions button{font-size:12px;padding:5px 10px;border-radius:8px;background:rgba(118,118,128,.12);color:var(--label-2);font-weight:600;white-space:nowrap;}
+.task-card-actions .primary{background:var(--blue);color:#fff;}
+.task-card-actions .warn{background:rgba(255,149,0,.16);color:#FF9500;}
+.task-card-actions .danger{background:rgba(255,59,48,.12);color:var(--red);}
+.task-card-title{font-size:16px;font-weight:700;}
+.task-card-sub{font-size:13px;color:var(--label-3);margin-top:3px;}
+.task-card-note{font-size:12px;color:var(--label-3);margin-top:4px;font-style:italic;}
+.task-card-pin{font-size:11px;color:#FF9500;font-weight:600;}
+.task-plan{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-top:.5px solid var(--separator);}
+.task-plan:first-child{border-top:none;}
+.task-plan-status{font-size:16px;margin-top:1px;width:18px;text-align:center;}
+.task-plan-main{flex:1;min-width:0;}
+.task-plan-name{font-size:15px;font-weight:600;}
+.task-plan-meta{font-size:12px;color:var(--label-3);margin-top:2px;word-break:break-word;}
+.task-plan-actions{display:flex;gap:6px;flex-shrink:0;}
+.task-plan-actions button{font-size:12px;padding:4px 8px;border-radius:7px;background:rgba(118,118,128,.12);color:var(--label-2);}
+.task-modal-title{font-size:17px;font-weight:700;margin-bottom:12px;}
+.task-field{margin-bottom:12px;}
+.task-field label{display:block;font-size:13px;color:var(--label-2);margin-bottom:5px;}
+.task-field input,.task-field textarea{width:100%;border:1px solid var(--separator);border-radius:9px;padding:9px 11px;font-size:15px;background:var(--bg);color:var(--label);}
+.task-row{display:flex;gap:10px;}
+.task-row .task-field{flex:1;}
+.task-sheet-btnrow{display:flex;gap:10px;margin-top:8px;}
+.task-sheet-btnrow button{flex:1;padding:11px 0;border-radius:11px;font-size:15px;font-weight:600;}
+.task-btn-primary{background:var(--blue);color:#fff;}
+.task-btn-ghost{background:rgba(118,118,128,.14);color:var(--label);}
+.task-radio{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--separator);border-radius:10px;margin-bottom:8px;cursor:pointer;}
+.task-radio input{width:18px;height:18px;}
+.task-clear-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:.5px solid var(--separator);}
+.task-clear-item:first-child{border-top:none;}
 
 /* ===== 底部抽屉 ===== */
 .sheet-overlay{
@@ -751,17 +770,17 @@ input,textarea{font-family:inherit;}
       <a class="nav-item active" data-module="home">
         <span class="nav-icon">🏠</span><span>今日战况</span>
       </a>
-      <a class="nav-item" data-module="finance">
-        <span class="nav-icon">📊</span><span>经济战报</span>
+      <a class="nav-item" data-module="study">
+        <span class="nav-icon">📖</span><span>逆转王者</span>
+      </a>
+      <a class="nav-item" data-module="task">
+        <span class="nav-icon">📋</span><span>任务委托</span>
       </a>
       <a class="nav-item" data-module="money">
         <span class="nav-icon">💰</span><span>FUCK YOU MONEY</span>
       </a>
-      <a class="nav-item" data-module="study">
-        <span class="nav-icon">📖</span><span>逆转王者</span>
-      </a>
-      <a class="nav-item" data-module="family">
-        <span class="nav-icon">👨‍👩‍👧</span><span>王朝建立</span>
+      <a class="nav-item" data-module="finance">
+        <span class="nav-icon">📊</span><span>经济战报</span>
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -903,8 +922,8 @@ const DB = {
     timerStart:null,
   },
 
-  // 家庭成员
-  family:[],
+  // 任务委托
+  tasks:[],
 
   // 健康档案
   health:{},
@@ -919,7 +938,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.4'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.5'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -1715,7 +1734,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
 function switchModule(m){
   state.currentModule = m;
   document.querySelectorAll('.nav-item').forEach(i=>i.classList.toggle('active', i.dataset.module===m));
-  const titles = {home:'今日战况',finance:'经济战报',money:'FUCK YOU MONEY',study:'逆转王者',family:'王朝建立'};
+  const titles = {home:'今日战况',study:'逆转王者',task:'任务委托',money:'FUCK YOU MONEY',finance:'经济战报'};
   document.getElementById('topbarTitle').textContent = titles[m];
   document.getElementById('fabBar').classList.toggle('hidden', m!=='home');
   const content = document.getElementById('content');
@@ -1723,7 +1742,7 @@ function switchModule(m){
   content.classList.remove('fade-in');
   void content.offsetWidth;
   content.classList.add('fade-in');
-  const renderer = {home:renderHome, finance:renderFinanceModule, money:renderMoney, study:renderStudy, family:renderFamily}[m];
+  const renderer = {home:renderHome, study:renderStudy, task:renderTask, money:renderMoney, finance:renderFinanceModule}[m];
   renderer && renderer(content);
   content.scrollTop=0;
 }
@@ -6062,245 +6081,258 @@ function saveInspire(val){
   },800);
 }
 
-// ===== 家庭板块 =====
-function renderFamily(c){
-  c.innerHTML=`
-    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
-      <span>王朝建立</span>
-      <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:18px;background:var(--blue);color:#fff;" onclick="openAddFamily()" aria-label="添加">＋</button>
-    </div>
-    <div class="avatar-wall">
-      ${(DB.family||[]).map(m=>{
-        const d = daysToBday(m.birthday);
-        const flipped = state.flippedAvatars.has(m.id);
-        return `
-          <div class="avatar-card" onclick="flipAvatar(${m.id})" style="min-height:160px;">
-            ${!flipped?`
-              <div class="avatar-circle" style="background:${m.color};">${m.avatar}</div>
-              <div class="avatar-name">${m.name}</div>
-              <div class="avatar-role">${m.role}</div>
-              ${d<=30?`<div class="bday-badge">距生日还有 ${d} 天</div>`:''}
-            `:`
-              <div class="avatar-back">
-                <div class="avatar-back-row"><div class="avatar-back-label">角色</div>${m.role}</div>
-                <div class="avatar-back-row"><div class="avatar-back-label">生日</div>${m.birthday}</div>
-                <div class="avatar-back-row"><div class="avatar-back-label">喜好</div>${m.likes}</div>
-                <div class="avatar-back-row"><div class="avatar-back-label">饮食禁忌</div>${m.taboo}</div>
-                <div class="avatar-back-row" style="margin-top:8px;font-size:13px;color:var(--label-3);">${m.note}</div>
-                <div style="display:flex;gap:8px;margin-top:10px;">
-                  <button class="edit-btn" style="flex:1;" onclick="event.stopPropagation();editFamily(${m.id})">编辑</button>
-                  <button class="edit-btn" style="flex:1;background:#FFEBEE;color:var(--red);" onclick="event.stopPropagation();deleteFamily(${m.id})">删除</button>
-                </div>
-                <button class="edit-btn" style="width:100%;margin-top:8px;background:#E8F5E9;color:var(--green);" onclick="event.stopPropagation();openMemberHealth(${m.id})">🏥 健康档案 (${(m.healthRecords||[]).length})</button>
-                ${d<=30?`<div class="bday-badge">距生日 ${d} 天</div>`:''}
-              </div>
-            `}
-          </div>
-        `;
-      }).join('')}
-    </div>
-    <div style="height:20px;"></div>
-  `;
+// ===== 任务委托板块 =====
+function escTask(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function taskById(id){ return (DB.tasks||[]).find(t=>t.id===id); }
+function taskNextId(){ const ts=DB.tasks||[]; return ts.length? Math.max(...ts.map(t=>t.id))+1 : 1; }
+function planMin(t){ const ps=t.plans||[]; if(!ps.length) return 0; return Math.min(...ps.map(p=>+p.amount||0)); }
+function planMax(t){ const ps=t.plans||[]; if(!ps.length) return 0; return Math.max(...ps.map(p=>+p.amount||0)); }
+function taskAbandonAmt(t){ const ps=t.plans||[]; if(t.lockedPlanId){ const lp=ps.find(p=>p.id===t.lockedPlanId); if(lp) return +lp.amount||0; } return planMin(t); }
+function sortPlans(t){ return (t.plans||[]).slice().sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)); }
+function amountText(t){
+  const ps=t.plans||[];
+  if(!ps.length) return '暂无备选方案';
+  if(ps.length===1) return '预估金额 ¥'+fmtMoney(+ps[0].amount||0);
+  return '待定方案 '+ps.length+' 个，价格区间 ¥'+fmtMoney(planMin(t))+'~¥'+fmtMoney(planMax(t));
 }
 
-function openAddFamily(){
+function renderTask(c){
+  c.innerHTML = `
+    <div class="task-topbar">
+      <button class="task-add-btn" onclick="openTaskAdd()">➕ 新增委托</button>
+      <div class="task-search-wrap"><span style="opacity:.5">🔍</span><input class="task-search" placeholder="搜索卡片或方案名" value="${escTask(state.taskSearch||'')}" oninput="state.taskSearch=this.value;renderTaskCols()"></div>
+      <button class="task-clear-btn" onclick="taskClearModal()">一键清零</button>
+    </div>
+    <div id="taskCols" class="task-cols"></div>`;
+  renderTaskCols();
+}
+
+function renderTaskCols(){
+  const box=document.getElementById('taskCols'); if(!box) return;
+  const q=(state.taskSearch||'').trim().toLowerCase();
+  const match=t=>{ if(!q) return true; if(t.name.toLowerCase().includes(q)) return true; return (t.plans||[]).some(p=>p.name.toLowerCase().includes(q)); };
+  const all=DB.tasks||[];
+  const cols={
+    '待接': all.filter(t=>t.status==='待接'&&match(t)),
+    '进行中': all.filter(t=>t.status==='进行中'&&match(t)),
+    '凯旋': all.filter(t=>t.status==='凯旋'&&match(t)),
+    '搁置': all.filter(t=>t.status==='搁置'&&match(t)),
+  };
+  const needTotal=all.filter(t=>t.status==='待接').reduce((s,t)=>s+planMin(t),0);
+  const savedTotal=all.filter(t=>t.status==='搁置').reduce((s,t)=>s+taskAbandonAmt(t),0);
+  const colDefs=[
+    {key:'待接',icon:'🎪',title:'委托待接',stat:'完成所有任务需 ¥'+fmtMoney(needTotal)},
+    {key:'进行中',icon:'⚔️',title:'任务进行中'},
+    {key:'凯旋',icon:'🏆',title:'任务已凯旋'},
+    {key:'搁置',icon:'🚫',title:'任务已搁置',stat:'放下省下 ¥'+fmtMoney(savedTotal),statCls:'green'},
+  ];
+  let html='';
+  for(const d of colDefs){
+    const list=cols[d.key];
+    html+=`<div class="task-col">
+      <div class="task-col-head"><span>${d.icon} ${d.title}</span>${d.stat?`<span class="task-col-stat ${d.statCls||''}">${d.stat}</span>`:''}</div>`;
+    if(!list.length){ html+=`<div class="task-empty">— 暂无 —</div>`; }
+    else { for(const t of list){ html+=taskCardHtml(t); } }
+    html+=`</div>`;
+  }
+  box.innerHTML=html;
+}
+
+function taskCardHtml(t){
+  const id=t.id;
+  let actions=''; let title=''; let sub=amountText(t); let note='';
+  if(t.note) note=`<div class="task-card-note">📝 ${escTask(t.note)}</div>`;
+  if(t.status==='待接'){
+    actions=`<button class="primary" onclick="openTaskDetail(${id})">查看/编辑</button><button class="warn" onclick="taskStrike(${id})">⚔️ 出击</button><button onclick="taskAbandon(${id})">🚫 放弃</button><button class="danger" onclick="taskDestroy(${id})">🗑️</button>`;
+    title=escTask(t.name);
+  } else if(t.status==='进行中'){
+    const lp=(t.plans||[]).find(p=>p.id===t.lockedPlanId);
+    actions=`<button class="primary" onclick="taskWin(${id})">🏆 凯旋结算</button><button class="danger" onclick="taskAbandon(${id})">🚫 放弃</button>`;
+    title=escTask(t.name)+(lp?`（${escTask(lp.name)}）`:'');
+    sub='预估赏金 ¥'+fmtMoney(+(lp?lp.amount:planMin(t))||0);
+  } else if(t.status==='凯旋'){
+    const lp=(t.plans||[]).find(p=>p.id===t.lockedPlanId);
+    actions=`<button class="warn" onclick="taskRestart(${id})">🔁 重启委托</button><button class="danger" onclick="taskDestroy(${id})">🗑️ 销毁</button>`;
+    title=escTask(t.name);
+    sub='✅ 已凯旋：'+(lp?escTask(lp.name):'—')+' · 赏金 ¥'+fmtMoney(+(lp?lp.amount:0)||0);
+  } else if(t.status==='搁置'){
+    actions=`<button class="warn" onclick="taskRestart(${id})">🔁 重启委托</button><button class="danger" onclick="taskDestroy(${id})">🗑️ 销毁</button>`;
+    title=escTask(t.name);
+    sub='放下省下 ¥'+fmtMoney(taskAbandonAmt(t));
+  }
+  return `<div class="task-card">
+    <div class="task-card-actions">${actions}</div>
+    <div class="task-card-title">${title}</div>
+    <div class="task-card-sub">${sub}</div>
+    ${note}
+  </div>`;
+}
+
+function openTaskAdd(){
+  openSheet(`<div class="task-modal-title">➕ 新增委托</div>
+    <div class="task-field"><label>事项名称（必填）</label><input id="taskName" placeholder="如：面霜 / 洗牙 / 医美" maxlength="40"></div>
+    <div class="task-field"><label>整体备注（可选）</label><textarea id="taskNote" rows="2" placeholder="如：整体等双11凑单"></textarea></div>
+    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="closeSheet()">取消</button><button class="task-btn-primary" onclick="saveTaskAdd()">创建</button></div>`);
+  setTimeout(()=>{const e=document.getElementById('taskName'); if(e) e.focus();},120);
+}
+function saveTaskAdd(){
+  const name=document.getElementById('taskName').value.trim();
+  if(!name){ toast('请输入事项名称'); return; }
+  const note=document.getElementById('taskNote').value.trim();
   haptic();
-  const colors = ['#007AFF','#FF9500','#34C759','#AF52DE','#FF3B30','#FFCC00'];
-  openSheet(`
-    <div class="sheet-title">添加家庭成员</div>
-    <div class="sheet-field">
-      <div class="sheet-label">姓名</div>
-      <input class="sheet-input" id="famName" placeholder="如:张爸爸">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">角色</div>
-      <input class="sheet-input" id="famRole" placeholder="如:父亲">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">生日(YYYY-MM-DD)</div>
-      <input class="sheet-input" id="famBday" type="date" placeholder="1958-03-15">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">喜好</div>
-      <input class="sheet-input" id="famLikes" placeholder="如:钓鱼、品茶">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">饮食禁忌</div>
-      <input class="sheet-input" id="famTaboo" placeholder="如:不吃香菜">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">备注</div>
-      <textarea class="sheet-input sheet-textarea" id="famNote" placeholder="随笔记录..."></textarea>
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="confirmAddFamily()">添加</button>
-    </div>
-  `);
+  DB.tasks.push({id:taskNextId(),name,note,createdAt:todayStr(),plans:[],status:'待接',lockedPlanId:null});
+  saveDB(); closeSheet(); renderTaskCols();
+  toast('已创建，去添加备选方案吧');
 }
 
-function confirmAddFamily(){
-  const name = document.getElementById('famName').value.trim();
-  const role = document.getElementById('famRole').value.trim();
-  if(!name || !role){ toast('请填写姓名和角色'); return; }
+function openTaskDetail(id){ renderTaskDetail(id); }
+function renderTaskDetail(id){
+  const t=taskById(id); if(!t) return;
+  const plans=sortPlans(t);
+  let ph='';
+  for(const p of plans){
+    const st = p.status==='done' ? '✅' : '🟢';
+    const intel = p.intel ? `<a href="${escTask(p.intel)}" target="_blank" rel="noopener" style="color:var(--blue)">🔗情报</a>` : '';
+    const meta=[ '¥'+fmtMoney(+p.amount||0), p.note?('备注：'+escTask(p.note)):'', intel ].filter(Boolean).join(' · ');
+    ph+=`<div class="task-plan">
+      <div class="task-plan-status">${st}</div>
+      <div class="task-plan-main">
+        <div class="task-plan-name">${escTask(p.name)} ${p.pinned?'<span class="task-card-pin">★置顶</span>':''}</div>
+        <div class="task-plan-meta">${meta}</div>
+      </div>
+      <div class="task-plan-actions">
+        <button onclick="taskTogglePin(${id},${p.id})">${p.pinned?'取消置顶':'置顶'}</button>
+        <button onclick="openPlanEdit(${id},${p.id})">编辑</button>
+        <button onclick="taskDelPlan(${id},${p.id})">删除</button>
+      </div>
+    </div>`;
+  }
+  openSheet(`<div class="task-modal-title">${escTask(t.name)} · 备选情报</div>
+    ${t.note?`<div class="task-card-note" style="margin-bottom:10px">📝 ${escTask(t.note)}</div>`:''}
+    ${t.status!=='待接'?`<div class="task-card-sub" style="margin-bottom:8px">当前状态：${t.status==='进行中'?'⚔️ 任务进行中':t.status==='凯旋'?'🏆 已凯旋':'🚫 已搁置'}</div>`:''}
+    <div id="planList">${ph||'<div class="task-empty">暂无备选方案，点击下方添加</div>'}</div>
+    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="openPlanAdd(${id})">➕ 添加新方案</button><button class="task-btn-primary" onclick="closeSheet()">返回</button></div>`);
+}
+function taskTogglePin(id,pid){
+  const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
+  p.pinned=!p.pinned; haptic(); saveDB(); renderTaskDetail(id);
+}
+function taskDelPlan(id,pid){
+  const t=taskById(id); if(!t) return;
+  t.plans=t.plans.filter(x=>x.id!==pid);
+  if(t.lockedPlanId===pid) t.lockedPlanId=null;
+  haptic(); saveDB(); renderTaskDetail(id); renderTaskCols();
+}
+function openPlanAdd(id){
+  openSheet(`<div class="task-modal-title">➕ 添加备选方案</div>
+    <div class="task-field"><label>方案名称</label><input id="planName" placeholder="如：A品牌替换装" maxlength="30"></div>
+    <div class="task-row">
+      <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" placeholder="599"></div>
+      <div class="task-field"><label>情报链接(可选)</label><input id="planIntel" placeholder="淘宝/小红书链接"></div>
+    </div>
+    <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2" placeholder="如：双11买一送一"></textarea></div>
+    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="renderTaskDetail(${id})">取消</button><button class="task-btn-primary" onclick="savePlanAdd(${id})">保存</button></div>`);
+  setTimeout(()=>{const e=document.getElementById('planName'); if(e) e.focus();},120);
+}
+function savePlanAdd(id){
+  const t=taskById(id); if(!t) return;
+  const name=document.getElementById('planName').value.trim();
+  if(!name){ toast('请输入方案名称'); return; }
+  const amount=parseFloat(document.getElementById('planAmount').value)||0;
+  const intel=document.getElementById('planIntel').value.trim();
+  const note=document.getElementById('planNote').value.trim();
   haptic();
-  const colors = ['#007AFF','#FF9500','#34C759','#AF52DE','#FF3B30','#FFCC00'];
-  const newId = DB.family.length > 0 ? Math.max(...DB.family.map(m=>m.id)) + 1 : 1;
-  DB.family.push({
-    id: newId,
-    name: name,
-    role: role,
-    avatar: role.charAt(0),
-    color: colors[newId % colors.length],
-    birthday: document.getElementById('famBday').value || '1900-01-01',
-    likes: document.getElementById('famLikes').value.trim() || '未填写',
-    taboo: document.getElementById('famTaboo').value.trim() || '无',
-    note: document.getElementById('famNote').value.trim() || ''
-  });
-  saveDB();
-  closeSheet();
-  renderFamily(document.getElementById('content'));
-  toast('已添加家庭成员');
+  const pid = t.plans.length? Math.max(...t.plans.map(p=>p.id))+1 : 1;
+  t.plans.push({id:pid,name,amount,intel,note,status:'open',pinned:false});
+  saveDB(); renderTaskDetail(id); renderTaskCols();
+}
+function openPlanEdit(id,pid){
+  const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
+  openSheet(`<div class="task-modal-title">编辑备选方案</div>
+    <div class="task-field"><label>方案名称</label><input id="planName" value="${escTask(p.name)}" maxlength="30"></div>
+    <div class="task-row">
+      <div class="task-field"><label>预估赏金(¥)</label><input id="planAmount" type="number" inputmode="decimal" value="${+p.amount||0}"></div>
+      <div class="task-field"><label>情报链接(可选)</label><input id="planIntel" value="${escTask(p.intel)}"></div>
+    </div>
+    <div class="task-field"><label>备注(可选)</label><textarea id="planNote" rows="2">${escTask(p.note)}</textarea></div>
+    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="renderTaskDetail(${id})">取消</button><button class="task-btn-primary" onclick="savePlanEdit(${id},${pid})">保存</button></div>`);
+}
+function savePlanEdit(id,pid){
+  const t=taskById(id); if(!t) return; const p=t.plans.find(x=>x.id===pid); if(!p) return;
+  const name=document.getElementById('planName').value.trim();
+  if(!name){ toast('请输入方案名称'); return; }
+  p.name=name; p.amount=parseFloat(document.getElementById('planAmount').value)||0;
+  p.intel=document.getElementById('planIntel').value.trim(); p.note=document.getElementById('planNote').value.trim();
+  haptic(); saveDB(); renderTaskDetail(id); renderTaskCols();
 }
 
-function flipAvatar(id){
-  haptic();
-  if(state.flippedAvatars.has(id)) state.flippedAvatars.delete(id);
-  else state.flippedAvatars.add(id);
-  renderFamily(document.getElementById('content'));
+function taskStrike(id){
+  const t=taskById(id); if(!t) return;
+  if(!t.plans.length){ toast('先添加至少一个备选方案'); return; }
+  if(t.plans.length===1){ doStrike(id, t.plans[0].id); return; }
+  let radios='';
+  for(const p of sortPlans(t)){
+    radios+=`<label class="task-radio"><input type="radio" name="lockPlan" value="${p.id}"><span>${escTask(p.name)} · ¥${fmtMoney(+p.amount||0)} ${p.status==='done'?'✅':''}</span></label>`;
+  }
+  openSheet(`<div class="task-modal-title">⚔️ 指定锁定方案</div>
+    <div style="margin-bottom:10px">为「${escTask(t.name)}」选择本次出击的方案：</div>
+    ${radios}
+    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="closeSheet()">取消</button><button class="task-btn-primary" onclick="confirmStrike(${id})">确认出击</button></div>`);
+}
+function confirmStrike(id){
+  const el=document.querySelector('input[name="lockPlan"]:checked');
+  if(!el){ toast('请选择一个方案'); return; }
+  doStrike(id, +el.value);
+}
+function doStrike(id, pid){
+  const t=taskById(id); if(!t) return;
+  t.lockedPlanId=pid; t.status='进行中'; haptic(); saveDB(); closeSheet(); renderTaskCols();
+  toast('已出击，执行中');
 }
 
-// 删除家庭成员
-function deleteFamily(id){
-  haptic();
-  DB.family = DB.family.filter(m=>m.id!==id);
-  state.flippedAvatars.delete(id);
-  saveDB();
-  renderFamily(document.getElementById('content'));
-  toast('已删除');
+function taskWin(id){
+  const t=taskById(id); if(!t) return;
+  if(t.lockedPlanId){ const lp=t.plans.find(p=>p.id===t.lockedPlanId); if(lp) lp.status='done'; }
+  t.status='凯旋'; haptic(); saveDB(); renderTaskCols(); toast('🏆 凯旋！');
+}
+function taskAbandon(id){
+  const t=taskById(id); if(!t) return;
+  t.status='搁置'; haptic(); saveDB(); renderTaskCols(); toast('已搁置');
+}
+function taskRestart(id){
+  const t=taskById(id); if(!t) return;
+  t.status='待接'; t.lockedPlanId=null; haptic(); saveDB(); renderTaskCols(); toast('🔁 已重启到委托待接');
+}
+function taskDestroy(id){
+  if(!confirm('确定销毁该委托？此操作不可恢复。')) return;
+  DB.tasks=DB.tasks.filter(t=>t.id!==id); haptic(); saveDB(); renderTaskCols();
+  if(document.querySelector('.sheet.show')) closeSheet();
+  toast('已销毁');
 }
 
-// 编辑家庭成员
-function editFamily(id){
-  haptic();
-  const m = DB.family.find(x=>x.id===id);
-  if(!m) return;
-  openSheet(`
-    <div class="sheet-title">编辑家庭成员</div>
-    <div class="sheet-field">
-      <div class="sheet-label">姓名</div>
-      <input class="sheet-input" id="efamName" value="${m.name}">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">角色</div>
-      <input class="sheet-input" id="efamRole" value="${m.role}">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">生日</div>
-      <input class="sheet-input" id="efamBday" type="date" value="${m.birthday}">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">喜好</div>
-      <input class="sheet-input" id="efamLikes" value="${m.likes}">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">饮食禁忌</div>
-      <input class="sheet-input" id="efamTaboo" value="${m.taboo}">
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">备注</div>
-      <textarea class="sheet-input sheet-textarea" id="efamNote">${m.note}</textarea>
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" style="background:var(--red);" onclick="deleteFamily(${m.id})">删除</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveFamily(${m.id})">保存</button>
-    </div>
-  `);
+function taskClearModal(){
+  const clearable=(DB.tasks||[]).filter(t=>t.status==='凯旋'||t.status==='搁置');
+  if(!clearable.length){ toast('没有已完成/已放弃的委托'); return; }
+  let items='';
+  for(const t of clearable){
+    const lp=(t.plans||[]).find(p=>p.id===t.lockedPlanId);
+    const sub = t.status==='凯旋' ? ('✅ '+ (lp?escTask(lp.name):'') +' · ¥'+fmtMoney(+(lp?lp.amount:0)||0)) : ('放下省下 ¥'+fmtMoney(taskAbandonAmt(t)));
+    items+=`<label class="task-clear-item"><input type="checkbox" class="keepBlue" value="${t.id}"><span><b>${escTask(t.name)}</b> · ${escTask(sub)}</span></label>`;
+  }
+  openSheet(`<div class="task-modal-title">🧹 一键清零</div>
+    <div class="task-card-sub" style="margin-bottom:10px">勾选「保留蓝图」的委托会移回「委托待接」，其余将彻底清空。</div>
+    ${items}
+    <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="closeSheet()">取消</button><button class="task-btn-primary" onclick="doTaskClear()">确认清零</button></div>`);
 }
-
-function saveFamily(id){
-  haptic();
-  const m = DB.family.find(x=>x.id===id);
-  if(!m) return;
-  m.name = document.getElementById('efamName').value.trim() || m.name;
-  m.role = document.getElementById('efamRole').value.trim() || m.role;
-  m.avatar = m.role.charAt(0);
-  m.birthday = document.getElementById('efamBday').value || m.birthday;
-  m.likes = document.getElementById('efamLikes').value.trim() || '未填写';
-  m.taboo = document.getElementById('efamTaboo').value.trim() || '无';
-  m.note = document.getElementById('efamNote').value.trim();
-  saveDB();
-  closeSheet();
-  renderFamily(document.getElementById('content'));
-  toast('已更新');
-}
-
-// ===== 成员健康档案 =====
-let pendingMemberHealth = null;
-
-function openMemberHealth(id){
-  event && event.stopPropagation && event.stopPropagation();
-  haptic();
-  const m = (DB.family||[]).find(x=>x.id===id);
-  if(!m) return;
-  if(!m.healthRecords) m.healthRecords = [];
-  renderMemberHealthSheet(id);
-}
-
-function renderMemberHealthSheet(id){
-  const m = (DB.family||[]).find(x=>x.id===id);
-  if(!m) return;
-  const records = m.healthRecords||[];
-  openSheet(`
-    <div class="sheet-title">🏥 ${m.name} 的健康档案</div>
-    <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;">共 ${records.length} 条记录</div>
-    <div class="sheet-field">
-      <input class="sheet-input" id="memberHealthName" placeholder="记录名称（如:体检报告）" style="margin-bottom:8px;">
-      <input class="sheet-input" id="memberHealthTag" placeholder="标签（如:血检/影像）" style="margin-bottom:8px;">
-      <textarea class="sheet-input sheet-textarea" id="memberHealthText" placeholder="输入健康信息或描述…" rows="4" style="resize:none;margin-bottom:8px;"></textarea>
-      <button class="sheet-btn sheet-btn-primary" style="width:100%;" onclick="addMemberHealth(${id})">＋ 添加记录</button>
-    </div>
-    <div style="border-top:.5px solid var(--separator);padding-top:8px;max-height:300px;overflow-y:auto;">
-      ${records.slice().reverse().map((r,idx)=>`
-        <div style="padding:10px 0;border-bottom:.5px solid var(--separator);position:relative;">
-          <div style="font-size:14px;font-weight:600;color:var(--label-1);padding-right:28px;">${r.name}</div>
-          ${r.tag?`<div style="font-size:12px;color:var(--blue);margin-top:2px;">${r.tag}</div>`:''}
-          ${r.text?`<div style="font-size:13px;color:var(--label-2);margin-top:4px;line-height:1.5;">${r.text}</div>`:''}
-          <div style="font-size:11px;color:var(--label-3);margin-top:4px;">${r.date}</div>
-          <button class="cmp-pair-edit" style="position:absolute;top:10px;right:0;width:24px;height:24px;font-size:12px;background:#FFEBEE;color:var(--red);" onclick="delMemberHealth(${id},${records.length-1-idx})">🗑</button>
-        </div>
-      `).join('') || '<div style="text-align:center;padding:16px;color:var(--label-3);font-size:14px;">还没有健康记录</div>'}
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">关闭</button>
-    </div>
-  `);
-}
-
-function addMemberHealth(id){
-  const name = document.getElementById('memberHealthName').value.trim();
-  if(!name){ toast('请输入记录名称'); return; }
-  const tag = document.getElementById('memberHealthTag').value.trim();
-  const text = document.getElementById('memberHealthText').value.trim();
-  haptic();
-  const m = (DB.family||[]).find(x=>x.id===id);
-  if(!m) return;
-  if(!m.healthRecords) m.healthRecords = [];
-  m.healthRecords.push({name, tag, text, date: todayStr()});
-  saveDB();
-  renderMemberHealthSheet(id);
-  toast('健康记录已添加');
-}
-
-function delMemberHealth(id, idx){
-  haptic();
-  const m = (DB.family||[]).find(x=>x.id===id);
-  if(!m || !m.healthRecords) return;
-  m.healthRecords.splice(idx, 1);
-  saveDB();
-  renderMemberHealthSheet(id);
-  toast('已删除');
+function doTaskClear(){
+  const keep=new Set([...document.querySelectorAll('.keepBlue:checked')].map(c=>+c.value));
+  for(const t of DB.tasks){
+    if(t.status==='凯旋'||t.status==='搁置'){
+      if(keep.has(t.id)){ t.status='待接'; t.lockedPlanId=null; }
+    }
+  }
+  DB.tasks=DB.tasks.filter(t=>!( (t.status==='凯旋'||t.status==='搁置') && !keep.has(t.id) ));
+  haptic(); saveDB(); closeSheet(); renderTaskCols(); toast('清零完成');
 }
 
 // ===== 健康板块 =====
