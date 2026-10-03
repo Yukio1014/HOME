@@ -967,7 +967,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.9'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.10'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -3091,15 +3091,16 @@ function renderMoney(c){
   const [y,m] = state.currentMonth.split('-');
   const monthData = DB.finance[state.currentMonth] || {incomePlanned:0,incomeActual:0,catMeta:{},goldOverride:null,expenses:[],plan:{},budget:0};
 
-  // 普通消费总额（不含超前消费）
-  const actualTotal = fin.normalExpense;
+  // 预算总盘子口径：已用 = 普通消费 + 超前消费
+  const normalTotal = fin.normalExpense || 0;          // 正常消费
+  const advanceTotal = fin.advanceTotal || 0;          // 超前消费
+  const actualTotal = normalTotal + advanceTotal;      // 预算口径：总已用
   // 预算 = 总额（可编辑）
   const budget = fin.budget || 0;
   const diffTotal = actualTotal - budget;
   const diffPct = budget > 0 ? Math.min(100, Math.round(actualTotal/budget*100)) : 0;
 
-  // 超前消费统计
-  const advanceTotal = fin.advanceTotal || 0;
+  // 超前消费统计（advanceTotal 已在上方预算口径处声明）
   const advanceCount = fin.advanceCount || 0;
 
   c.innerHTML = `
@@ -3134,7 +3135,7 @@ function renderMoney(c){
         </div>
         ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;margin-top:6px;">⚠️ 已手动覆盖</div>' : ''}
         <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);">
-          = 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外收入 ¥${fmtMoney(fin.bonusTotal||0)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(actualTotal)}
+          = 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外收入 ¥${fmtMoney(fin.bonusTotal||0)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(normalTotal)}
         </div>
       </div>
 
@@ -3178,9 +3179,12 @@ function renderMoney(c){
           <span style="font-size:14px;font-weight:600;color:var(--label);">补给预算计划</span>
           <button class="edit-btn" onclick="editBudget()">预算</button>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
           <div style="font-size:13px;color:var(--label-3);">预算 ¥${fmtMoney(budget)}</div>
-          <div style="font-size:13px;font-weight:600;color:${diffTotal>0?'var(--red)':'var(--green)'};">已用 ¥${fmtMoney(actualTotal)} · ${diffTotal>0?'超支':'剩余'} ¥${fmtMoney(Math.abs(diffTotal))}</div>
+          <div style="text-align:right;">
+            <div style="font-size:13px;font-weight:600;color:${diffTotal>0?'var(--red)':'var(--green)'};">已用 ¥${fmtMoney(actualTotal)} · ${diffTotal>0?'超支':'剩余'} ¥${fmtMoney(Math.abs(diffTotal))}</div>
+            <div style="font-size:11px;color:var(--label-3);margin-top:2px;">正常 ¥${fmtMoney(normalTotal)} · 超前 ¥${fmtMoney(advanceTotal)}</div>
+          </div>
         </div>
         <!-- 渐变警示进度条：绿→黄→红 -->
         <div style="background:#E5E5EA;height:8px;border-radius:4px;overflow:hidden;">
@@ -3195,14 +3199,6 @@ function renderMoney(c){
           <button class="edit-btn" style="color:var(--red);" onclick="openAddExpenseItem()">＋录入消费</button>
         </div>
         ${getExpenseRows(fin, monthData)}
-        <!-- 宝藏流失 小条：超前消费 + 普通消费 实时合计 -->
-        <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:linear-gradient(135deg,#FFE5E5,#FFD6D6);border:1px solid #FFB3B3;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-size:12px;font-weight:700;color:#C0392B;">💸 宝藏流失</div>
-            <div style="font-size:10px;color:#C0392B;opacity:.85;margin-top:2px;">= 超前消费 ¥${fmtMoney(fin.advanceTotal)} ＋ 普通消费 ¥${fmtMoney(fin.normalExpense)}</div>
-          </div>
-          <div style="font-size:20px;font-weight:800;color:#C0392B;">¥${fmtMoney((fin.advanceTotal||0)+(fin.normalExpense||0))}</div>
-        </div>
       </div>
     </div>
 
@@ -3700,25 +3696,38 @@ function getExpenseRows(fin, monthData){
         .map(k=>({name:k.slice((key+'|').length), val:fin.subSummary[k]}))
         .sort((a,b)=>b.val-a.val);
       const open = expandedCatKeys.has(key);
+      // 该大类下的逐笔普通消费明细（按日期倒序）
+      const items = (monthData.expenses||[]).filter(e=>catKeyOf(e)===key && !e.isAdvance)
+        .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
       let out = `
         <div class="cmp-pair-row">
-          <span class="cmp-pair-name" style="display:flex;align-items:center;gap:5px;min-width:0;">
+          <span class="cmp-pair-name" onclick="toggleCatSub('${safeKey}')" style="display:flex;align-items:center;gap:5px;min-width:0;cursor:pointer;">
             <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
             <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${catKeyLabel(key)}</span>
             ${legacy ? '<span style="font-size:10px;color:#FF9500;background:rgba(255,149,0,.12);padding:1px 4px;border-radius:4px;flex-shrink:0;">旧</span>' : ''}
-            ${subs.length ? `<span onclick="toggleCatSub('${safeKey}')" style="font-size:10px;color:var(--label-3);flex-shrink:0;padding:0 2px;">${open?'▾':'▸'}${subs.length}</span>` : ''}
+            <span style="font-size:10px;color:var(--label-3);flex-shrink:0;padding:0 2px;margin-left:2px;">${open?'▾':'▸'}${items.length||subs.length}</span>
           </span>
           <span class="cmp-pair-col expense">¥${fmtMoney(actual)}</span>
           <button class="cmp-pair-edit" onclick="openExpenseCatManage('${safeKey}')">管理</button>
         </div>`;
-      if(open && subs.length){
-        const total = actual || 1;
-        out += subs.map(s=>`
-          <div style="display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;font-size:12px;color:var(--label-2);">
-            <span style="flex:1;">└ ${s.name}</span>
-            <span style="color:var(--label-3);">¥${fmtMoney(s.val)}</span>
-            <span style="color:var(--label-3);font-size:11px;width:34px;text-align:right;">${Math.round(s.val/total*100)}%</span>
-          </div>`).join('');
+      if(open){
+        if(subs.length){
+          const total = actual || 1;
+          out += subs.map(s=>`
+            <div style="display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;font-size:12px;color:var(--label-2);">
+              <span style="flex:1;">└ ${s.name}</span>
+              <span style="color:var(--label-3);">¥${fmtMoney(s.val)}</span>
+              <span style="color:var(--label-3);font-size:11px;width:34px;text-align:right;">${Math.round(s.val/total*100)}%</span>
+            </div>`).join('');
+        }
+        if(items.length){
+          out += items.map(e=>`
+            <div style="display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;font-size:12px;color:var(--label-2);">
+              <span style="color:var(--label-3);width:48px;flex-shrink:0;">${(e.date||'').slice(5)||'—'}</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.note?escTask(e.note):'—'}</span>
+              <span style="color:var(--label-3);flex-shrink:0;">¥${fmtMoney(e.amount)}</span>
+            </div>`).join('');
+        }
       }
       return out;
     }).join('');
