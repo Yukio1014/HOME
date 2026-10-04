@@ -462,6 +462,8 @@ input,textarea{font-family:inherit;}
 .tf-plan-row{display:flex;gap:8px;align-items:center;}
 .tf-plan-row input{flex:1;min-width:0;border:1px solid var(--separator);border-radius:9px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--label);}
 .tf-plan-del{background:rgba(255,59,48,.12);color:var(--red);border:none;border-radius:8px;font-size:12px;padding:6px 9px;font-weight:700;flex-shrink:0;}
+.tf-calc-out{margin-top:6px;padding:6px 9px;border-radius:8px;background:rgba(255,149,0,.1);font-size:12px;color:#D97706;line-height:1.5;}
+.tf-calc-out b{color:#FF9500;}
 .tf-calc-btn{background:rgba(52,199,89,.12);color:#34C759;border:none;border-radius:8px;font-size:11px;padding:5px 9px;font-weight:600;text-align:left;cursor:pointer;}
 .tf-calc-btn.on{background:rgba(255,149,0,.14);color:#FF9500;}
 
@@ -969,7 +971,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.11'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.12'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6199,12 +6201,35 @@ function renderTaskList(){
   box.innerHTML=list.map(taskCardHtml).join('');
 }
 
+// 套餐对比派生量：套餐价×数量=总价；每份规格×数量=总重；总价/总重=折算单价
+function planDerived(p){
+  const amount=+p.amount||0;
+  const qty=(+p.qty>0)?+p.qty:1;
+  const spec=+p.spec||0;
+  const comboPrice=(+p.comboPrice>0)?+p.comboPrice:(qty>0?amount/qty:amount);
+  const totalSpec=spec*qty;
+  const unitPrice=totalSpec>0?amount/totalSpec:0;
+  return {amount,qty,spec,comboPrice,totalSpec,unitPrice};
+}
+function taskCalcOutHtml(p){
+  const d=planDerived(p);
+  if(d.spec<=0) return '';
+  const unit=escTask(p.unit)||'单位';
+  return `<div class="tf-calc-out">📦 总重 ${fmtMoney(d.totalSpec)} ${unit} · ⚖️ 折算 <b>≈¥${fmtMoney(d.unitPrice)}/${unit}</b></div>`;
+}
+function taskCalcLabel(p){
+  const d=planDerived(p);
+  if(d.spec>0 && d.unitPrice>0) return '🧮 ≈¥'+fmtMoney(d.unitPrice)+'/'+(escTask(p.unit)||'单位')+' · 点开调整';
+  if(+p.comboPrice>0||+p.spec>0) return '🧮 规格对比（点开调整）';
+  return '🧮 套餐规格对比（点开填）';
+}
 function taskBackHtml(t){
   const ps=sortPlans(t);
   if(!ps.length) return `<div class="task-empty">暂无备选方案</div>`;
   return ps.map(p=>{
     const mark = p.status==='done' ? '✅' : (t.status==='进行中'&&p.id===t.lockedPlanId ? '⚔️' : '🟢');
-    const unitStr = (+p.qty&&+p.unitPrice) ? ` · <span style="color:#FF9500;">≈¥${fmtMoney(+p.unitPrice)}/${escTask(p.unit)||'单位'}</span>` : '';
+    const d=planDerived(p);
+    const unitStr = (d.spec>0 && d.unitPrice>0) ? ` · <span style="color:#FF9500;">≈¥${fmtMoney(d.unitPrice)}/${escTask(p.unit)||'单位'}</span>` : '';
     const meta=[ '¥'+fmtMoney(+p.amount||0)+unitStr, p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
     return `<div class="task-plan-back"><span class="task-plan-status">${mark}</span>
       <div style="flex:1;min-width:0"><div class="task-plan-name">${escTask(p.name)}</div><div class="task-plan-meta">${meta}</div></div></div>`;
@@ -6297,42 +6322,47 @@ function taskRenderFormPlans(){
         <input placeholder="备注（链接也写这里）" value="${escTask(p.note||'')}" oninput="taskFormPlanInput(${i},'note',this.value)">
       </div>
       <div class="tf-plan-row" style="margin-top:6px">
-        <button id="tfCalcBtn_${i}" type="button" class="tf-calc-btn${(p.qty&&p.unitPrice)?' on':''}" onclick="taskFormToggleCalc(${i})">${taskCalcLabel(p)}</button>
+        <button id="tfCalcBtn_${i}" type="button" class="tf-calc-btn${(+p.spec>0)?' on':''}" onclick="taskFormToggleCalc(${i})">${taskCalcLabel(p)}</button>
       </div>
       ${p._calcOpen?`
       <div class="tf-plan-row" style="margin-top:6px">
-        <input id="tfQty_${i}" type="number" inputmode="decimal" placeholder="数量" style="max-width:78px;flex:0 0 78px" value="${p.qty??''}" oninput="taskFormPlanCalc(${i},'qty',this.value)">
-        <input id="tfUp_${i}" type="number" inputmode="decimal" placeholder="单价 ¥" style="max-width:92px;flex:0 0 92px" value="${p.unitPrice??''}" oninput="taskFormPlanCalc(${i},'unitPrice',this.value)">
-        <input id="tfUnit_${i}" placeholder="单位(如kg)" style="max-width:86px;flex:0 0 86px" value="${escTask(p.unit||'')}" oninput="taskFormPlanInput(${i},'unit',this.value)">
-      </div>`:''}
+        <input id="tfCp_${i}" type="number" inputmode="decimal" placeholder="套餐价 ¥(每份)" style="max-width:118px;flex:0 0 118px" value="${p.comboPrice??''}" oninput="taskFormPlanCalc(${i},'comboPrice',this.value)">
+        <input id="tfQty_${i}" type="number" inputmode="decimal" placeholder="数量(几份)" style="max-width:96px;flex:0 0 96px" value="${p.qty??''}" oninput="taskFormPlanCalc(${i},'qty',this.value)">
+      </div>
+      <div class="tf-plan-row" style="margin-top:6px">
+        <input id="tfSpec_${i}" type="number" inputmode="decimal" placeholder="每份重量" style="max-width:110px;flex:0 0 110px" value="${p.spec??''}" oninput="taskFormPlanCalc(${i},'spec',this.value)">
+        <input id="tfUnit_${i}" placeholder="单位(如kg)" style="max-width:90px;flex:0 0 90px" value="${escTask(p.unit||'')}" oninput="taskFormPlanInput(${i},'unit',this.value)">
+      </div>
+      <div id="tfCalcOut_${i}">${taskCalcOutHtml(p)}</div>`:''}
     </div>`).join('') : '<div class="task-empty">还没有备选方案，点右上「添加备选」</div>';
   taskUpdateRange();
 }
 // 单价对比按钮文案：已算出单价时直接展示，横向对比一眼可见
-function taskCalcLabel(p){
-  if(p.qty&&p.unitPrice) return '🧮 ≈ ¥'+fmtMoney(+p.unitPrice)+' / '+(escTask(p.unit)||'单位')+' · 点开调整';
-  return '🧮 单价对比（点开填数量）';
-}
 function taskFormToggleCalc(i){
   haptic();
   const p=state.taskFormPlans[i]; if(!p) return;
   p._calcOpen=!p._calcOpen;
   taskRenderFormPlans();
 }
-// 总价/数量/单价 三者联动：填其二自动算第三（结算永远取总价）
+// 套餐价/数量/每份规格 联动：套餐价×数量=总价；每份规格×数量=总重；总价/总重=折算单价
 function taskFormPlanCalc(i,k,v){
   const p=state.taskFormPlans[i]; if(!p) return;
   p[k]=v;
-  const qty=+p.qty||0, up=+p.unitPrice||0, amt=+p.amount||0;
+  const rawQty=(+p.qty>0)?+p.qty:0;   // 未填数量视为 0，避免被默认成 1 误算
+  const cp=+p.comboPrice||0, amt=+p.amount||0;
   const setOther=(id,val)=>{ const e=document.getElementById(id); if(e && document.activeElement!==e) e.value=val; };
-  if(k==='amount' && qty>0 && amt>0){ p.unitPrice=+(amt/qty).toFixed(2); setOther('tfUp_'+i,p.unitPrice); }
-  else if(k==='unitPrice' && qty>0 && up>0){ p.amount=+(qty*up).toFixed(2); setOther('tfAmt_'+i,p.amount); }
-  else if(k==='qty' && qty>0){
-    if(amt>0){ p.unitPrice=+(amt/qty).toFixed(2); setOther('tfUp_'+i,p.unitPrice); }
-    else if(up>0){ p.amount=+(qty*up).toFixed(2); setOther('tfAmt_'+i,p.amount); }
+  if(k==='comboPrice'){
+    if(rawQty>0 && cp>0){ p.amount=+(cp*rawQty).toFixed(2); setOther('tfAmt_'+i,p.amount); }
+  } else if(k==='qty'){
+    if(cp>0 && rawQty>0){ p.amount=+(cp*rawQty).toFixed(2); setOther('tfAmt_'+i,p.amount); }
+    else if(amt>0 && rawQty>0){ p.comboPrice=+(amt/rawQty).toFixed(2); setOther('tfCp_'+i,p.comboPrice); }
+  } else if(k==='amount'){
+    if(rawQty>0 && amt>0){ p.comboPrice=+(amt/rawQty).toFixed(2); setOther('tfCp_'+i,p.comboPrice); }
   }
+  const out=document.getElementById('tfCalcOut_'+i);
+  if(out) out.innerHTML=taskCalcOutHtml(p);
   const btn=document.getElementById('tfCalcBtn_'+i);
-  if(btn){ btn.textContent=taskCalcLabel(p); btn.classList.toggle('on', !!(+p.qty&&+p.unitPrice)); }
+  if(btn){ btn.textContent=taskCalcLabel(p); btn.classList.toggle('on', !!(+p.spec>0&&planDerived(p).unitPrice>0)); }
   taskUpdateRange();
 }
 function taskUpdateRange(){
@@ -6352,11 +6382,11 @@ function taskFormSave(id){
   if(id){
     const t=taskById(id); if(!t) return;
     let nid=(t.plans||[]).reduce((m,p)=>Math.max(m,+p.id||0),0)+1;
-    plans.forEach(p=>{ if(!p.id){ p.id=nid++; } p.amount=+p.amount||0; p.qty=+p.qty||0; p.unitPrice=+p.unitPrice||0; p.unit=(p.unit||'').trim(); delete p._calcOpen; p.status=p.status||'open'; p.pinned=!!p.pinned; });
+    plans.forEach(p=>{ if(!p.id){ p.id=nid++; } p.amount=+p.amount||0; p.qty=+p.qty||0; p.comboPrice=+p.comboPrice||0; p.spec=+p.spec||0; p.unit=(p.unit||'').trim(); delete p._calcOpen; p.status=p.status||'open'; p.pinned=!!p.pinned; });
     t.name=name; t.note=note; t.createdAt=date; t.plans=plans;
     toast('已保存');
   } else {
-    let nid=1; plans.forEach(p=>{ p.id=nid++; p.amount=+p.amount||0; p.qty=+p.qty||0; p.unitPrice=+p.unitPrice||0; p.unit=(p.unit||'').trim(); delete p._calcOpen; p.status='open'; p.pinned=!!p.pinned; });
+    let nid=1; plans.forEach(p=>{ p.id=nid++; p.amount=+p.amount||0; p.qty=+p.qty||0; p.comboPrice=+p.comboPrice||0; p.spec=+p.spec||0; p.unit=(p.unit||'').trim(); delete p._calcOpen; p.status='open'; p.pinned=!!p.pinned; });
     DB.tasks.push({id:taskNextId(),name,note,createdAt:date,plans,status:'待接',lockedPlanId:null});
     toast('已创建');
   }
@@ -6369,7 +6399,8 @@ function taskStrike(id){
   if(t.plans.length===1){ doStrike(id, t.plans[0].id); return; }
   let radios='';
   for(const p of sortPlans(t)){
-    const unitStr=(+p.qty&&+p.unitPrice)?`（≈¥${fmtMoney(+p.unitPrice)}/${escTask(p.unit)||'单位'}）`:'';
+    const d=planDerived(p);
+    const unitStr=(d.spec>0&&d.unitPrice>0)?`（≈¥${fmtMoney(d.unitPrice)}/${escTask(p.unit)||'单位'}）`:'';
     radios+=`<label class="task-radio"><input type="radio" name="lockPlan" value="${p.id}"><span>${escTask(p.name)} · ¥${fmtMoney(+p.amount||0)}<span style="color:#FF9500;font-size:12px;">${unitStr}</span> ${p.status==='done'?'✅':''}</span></label>`;
   }
   openSheet(`<div class="task-modal-title">⚔️ 指定锁定方案</div>
