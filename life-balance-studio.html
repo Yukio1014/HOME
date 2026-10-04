@@ -462,6 +462,8 @@ input,textarea{font-family:inherit;}
 .tf-plan-row{display:flex;gap:8px;align-items:center;}
 .tf-plan-row input{flex:1;min-width:0;border:1px solid var(--separator);border-radius:9px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--label);}
 .tf-plan-del{background:rgba(255,59,48,.12);color:var(--red);border:none;border-radius:8px;font-size:12px;padding:6px 9px;font-weight:700;flex-shrink:0;}
+.tf-calc-btn{background:rgba(52,199,89,.12);color:#34C759;border:none;border-radius:8px;font-size:11px;padding:5px 9px;font-weight:600;text-align:left;cursor:pointer;}
+.tf-calc-btn.on{background:rgba(255,149,0,.14);color:#FF9500;}
 
 /* ===== 底部抽屉 ===== */
 .sheet-overlay{
@@ -967,7 +969,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.10'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.11'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6202,7 +6204,8 @@ function taskBackHtml(t){
   if(!ps.length) return `<div class="task-empty">暂无备选方案</div>`;
   return ps.map(p=>{
     const mark = p.status==='done' ? '✅' : (t.status==='进行中'&&p.id===t.lockedPlanId ? '⚔️' : '🟢');
-    const meta=[ '¥'+fmtMoney(+p.amount||0), p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
+    const unitStr = (+p.qty&&+p.unitPrice) ? ` · <span style="color:#FF9500;">≈¥${fmtMoney(+p.unitPrice)}/${escTask(p.unit)||'单位'}</span>` : '';
+    const meta=[ '¥'+fmtMoney(+p.amount||0)+unitStr, p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
     return `<div class="task-plan-back"><span class="task-plan-status">${mark}</span>
       <div style="flex:1;min-width:0"><div class="task-plan-name">${escTask(p.name)}</div><div class="task-plan-meta">${meta}</div></div></div>`;
   }).join('');
@@ -6290,10 +6293,46 @@ function taskRenderFormPlans(){
         <button class="tf-plan-del" onclick="taskFormDelPlan(${i})">删除</button>
       </div>
       <div class="tf-plan-row" style="margin-top:8px">
-        <input type="number" inputmode="decimal" placeholder="价格 ¥" value="${p.amount??''}" oninput="taskFormPlanInput(${i},'amount',this.value)">
+        <input id="tfAmt_${i}" type="number" inputmode="decimal" placeholder="总价 ¥（结算按这个）" value="${p.amount??''}" oninput="taskFormPlanCalc(${i},'amount',this.value)">
         <input placeholder="备注（链接也写这里）" value="${escTask(p.note||'')}" oninput="taskFormPlanInput(${i},'note',this.value)">
       </div>
+      <div class="tf-plan-row" style="margin-top:6px">
+        <button id="tfCalcBtn_${i}" type="button" class="tf-calc-btn${(p.qty&&p.unitPrice)?' on':''}" onclick="taskFormToggleCalc(${i})">${taskCalcLabel(p)}</button>
+      </div>
+      ${p._calcOpen?`
+      <div class="tf-plan-row" style="margin-top:6px">
+        <input id="tfQty_${i}" type="number" inputmode="decimal" placeholder="数量" style="max-width:78px;flex:0 0 78px" value="${p.qty??''}" oninput="taskFormPlanCalc(${i},'qty',this.value)">
+        <input id="tfUp_${i}" type="number" inputmode="decimal" placeholder="单价 ¥" style="max-width:92px;flex:0 0 92px" value="${p.unitPrice??''}" oninput="taskFormPlanCalc(${i},'unitPrice',this.value)">
+        <input id="tfUnit_${i}" placeholder="单位(如kg)" style="max-width:86px;flex:0 0 86px" value="${escTask(p.unit||'')}" oninput="taskFormPlanInput(${i},'unit',this.value)">
+      </div>`:''}
     </div>`).join('') : '<div class="task-empty">还没有备选方案，点右上「添加备选」</div>';
+  taskUpdateRange();
+}
+// 单价对比按钮文案：已算出单价时直接展示，横向对比一眼可见
+function taskCalcLabel(p){
+  if(p.qty&&p.unitPrice) return '🧮 ≈ ¥'+fmtMoney(+p.unitPrice)+' / '+(escTask(p.unit)||'单位')+' · 点开调整';
+  return '🧮 单价对比（点开填数量）';
+}
+function taskFormToggleCalc(i){
+  haptic();
+  const p=state.taskFormPlans[i]; if(!p) return;
+  p._calcOpen=!p._calcOpen;
+  taskRenderFormPlans();
+}
+// 总价/数量/单价 三者联动：填其二自动算第三（结算永远取总价）
+function taskFormPlanCalc(i,k,v){
+  const p=state.taskFormPlans[i]; if(!p) return;
+  p[k]=v;
+  const qty=+p.qty||0, up=+p.unitPrice||0, amt=+p.amount||0;
+  const setOther=(id,val)=>{ const e=document.getElementById(id); if(e && document.activeElement!==e) e.value=val; };
+  if(k==='amount' && qty>0 && amt>0){ p.unitPrice=+(amt/qty).toFixed(2); setOther('tfUp_'+i,p.unitPrice); }
+  else if(k==='unitPrice' && qty>0 && up>0){ p.amount=+(qty*up).toFixed(2); setOther('tfAmt_'+i,p.amount); }
+  else if(k==='qty' && qty>0){
+    if(amt>0){ p.unitPrice=+(amt/qty).toFixed(2); setOther('tfUp_'+i,p.unitPrice); }
+    else if(up>0){ p.amount=+(qty*up).toFixed(2); setOther('tfAmt_'+i,p.amount); }
+  }
+  const btn=document.getElementById('tfCalcBtn_'+i);
+  if(btn){ btn.textContent=taskCalcLabel(p); btn.classList.toggle('on', !!(+p.qty&&+p.unitPrice)); }
   taskUpdateRange();
 }
 function taskUpdateRange(){
@@ -6313,11 +6352,11 @@ function taskFormSave(id){
   if(id){
     const t=taskById(id); if(!t) return;
     let nid=(t.plans||[]).reduce((m,p)=>Math.max(m,+p.id||0),0)+1;
-    plans.forEach(p=>{ if(!p.id){ p.id=nid++; } p.amount=+p.amount||0; p.status=p.status||'open'; p.pinned=!!p.pinned; });
+    plans.forEach(p=>{ if(!p.id){ p.id=nid++; } p.amount=+p.amount||0; p.qty=+p.qty||0; p.unitPrice=+p.unitPrice||0; p.unit=(p.unit||'').trim(); delete p._calcOpen; p.status=p.status||'open'; p.pinned=!!p.pinned; });
     t.name=name; t.note=note; t.createdAt=date; t.plans=plans;
     toast('已保存');
   } else {
-    let nid=1; plans.forEach(p=>{ p.id=nid++; p.amount=+p.amount||0; p.status='open'; p.pinned=!!p.pinned; });
+    let nid=1; plans.forEach(p=>{ p.id=nid++; p.amount=+p.amount||0; p.qty=+p.qty||0; p.unitPrice=+p.unitPrice||0; p.unit=(p.unit||'').trim(); delete p._calcOpen; p.status='open'; p.pinned=!!p.pinned; });
     DB.tasks.push({id:taskNextId(),name,note,createdAt:date,plans,status:'待接',lockedPlanId:null});
     toast('已创建');
   }
@@ -6330,7 +6369,8 @@ function taskStrike(id){
   if(t.plans.length===1){ doStrike(id, t.plans[0].id); return; }
   let radios='';
   for(const p of sortPlans(t)){
-    radios+=`<label class="task-radio"><input type="radio" name="lockPlan" value="${p.id}"><span>${escTask(p.name)} · ¥${fmtMoney(+p.amount||0)} ${p.status==='done'?'✅':''}</span></label>`;
+    const unitStr=(+p.qty&&+p.unitPrice)?`（≈¥${fmtMoney(+p.unitPrice)}/${escTask(p.unit)||'单位'}）`:'';
+    radios+=`<label class="task-radio"><input type="radio" name="lockPlan" value="${p.id}"><span>${escTask(p.name)} · ¥${fmtMoney(+p.amount||0)}<span style="color:#FF9500;font-size:12px;">${unitStr}</span> ${p.status==='done'?'✅':''}</span></label>`;
   }
   openSheet(`<div class="task-modal-title">⚔️ 指定锁定方案</div>
     <div style="margin-bottom:10px">为「${escTask(t.name)}」选择本次出击的方案：</div>
