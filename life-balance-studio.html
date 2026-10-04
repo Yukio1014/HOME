@@ -405,6 +405,20 @@ input,textarea{font-family:inherit;}
 .task-banner.gold{background:rgba(255,204,0,.24);color:#936900;}
 .task-toolbar{display:flex;justify-content:flex-end;gap:10px;margin-bottom:12px;}
 .task-icon-btn{width:38px;height:38px;border-radius:11px;background:rgba(118,118,128,.12);font-size:17px;display:flex;align-items:center;justify-content:center;border:none;}
+.task-icon-btn.on{background:var(--blue);color:#fff;}
+/* 多选批量操作 */
+.task-selbar{position:sticky;bottom:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding:10px 12px;border-radius:14px;background:var(--card);box-shadow:var(--shadow-card);border:1px solid var(--separator);z-index:5;}
+.task-sel-count{font-size:12px;font-weight:700;color:var(--label-2);}
+.tsb{font-size:12px;font-weight:700;padding:8px 11px;border-radius:9px;border:none;white-space:nowrap;}
+.tsb.primary{background:var(--blue);color:#fff;}
+.tsb.win{background:#FFB300;color:#fff;}
+.tsb.warn{background:rgba(255,149,0,.16);color:#FF9500;}
+.tsb.danger{background:rgba(255,59,48,.12);color:var(--red);}
+.tsb.ghost{background:rgba(118,118,128,.12);color:var(--label-2);}
+.task-card.selmode{cursor:pointer;}
+.task-card.selon{outline:2px solid var(--blue);outline-offset:-2px;}
+.task-check{width:22px;height:22px;border-radius:50%;border:2px solid var(--label-3);flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:transparent;margin-right:2px;}
+.task-check.on{background:var(--blue);border-color:var(--blue);color:#fff;}
 .task-search-row{margin-bottom:12px;}
 .task-empty{font-size:13px;color:var(--label-3);padding:8px 2px;}
 .task-card{perspective:1200px;margin-bottom:12px;}
@@ -971,7 +985,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.12'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.13'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6174,15 +6188,16 @@ function renderTaskCols(){
   root.innerHTML=`
     <div class="task-tabs">${tabs}</div>
     ${(def.key==='待接'||def.key==='搁置')?`<div class="task-banner ${b.cls}">${b.text}</div>`:''}
-    <div class="task-toolbar"><button class="task-icon-btn" title="搜索" onclick="taskToggleSearch()">🔍</button>${actBtn}</div>
+    <div class="task-toolbar"><button class="task-icon-btn" title="搜索" onclick="taskToggleSearch()">🔍</button><button class="task-icon-btn${state.taskSel?' on':''}" title="多选" onclick="taskToggleSel()">☑️</button>${actBtn}</div>
     ${toolbar}
-    <div id="taskList"></div>`;
+    <div id="taskList"></div>
+    ${state.taskSel?taskSelBarHtml(def.key):''}`;
   renderTaskList();
 }
 
 function taskSwitchTab(key){
   if(state.taskTab===key) return;
-  state.taskTab=key; haptic(); renderTaskCols();
+  state.taskTab=key; if(state.taskSel) state.taskSel=new Set(); haptic(); renderTaskCols();
 }
 function taskToggleSearch(){
   state.taskSearchOpen=!state.taskSearchOpen;
@@ -6191,12 +6206,121 @@ function taskToggleSearch(){
   if(state.taskSearchOpen){ setTimeout(()=>{const e=document.getElementById('taskSearchInput'); if(e) e.focus();},80); }
 }
 
+// ===== 多选批量操作 =====
+function taskMatch(t,q){
+  if(!q) return true;
+  if(t.name.toLowerCase().includes(q)) return true;
+  return (t.plans||[]).some(p=>p.name.toLowerCase().includes(q));
+}
+function taskSelList(){
+  const tab=state.taskTab||'待接';
+  const q=(state.taskSearch||'').trim().toLowerCase();
+  return (DB.tasks||[]).filter(t=>t.status===tab&&taskMatch(t,q));
+}
+function taskToggleSel(){
+  haptic();
+  state.taskSel = state.taskSel? null : new Set();
+  renderTaskCols();
+}
+function taskSelToggle(id){
+  if(!state.taskSel) return;
+  haptic();
+  if(state.taskSel.has(id)) state.taskSel.delete(id); else state.taskSel.add(id);
+  renderTaskCols();
+}
+function taskSelAll(){
+  if(!state.taskSel) return;
+  const list=taskSelList();
+  const allOn = list.length && list.every(t=>state.taskSel.has(t.id));
+  if(allOn) list.forEach(t=>state.taskSel.delete(t.id));
+  else list.forEach(t=>state.taskSel.add(t.id));
+  haptic(); renderTaskCols();
+}
+function taskSelBarHtml(tab){
+  const n=state.taskSel.size;
+  const total=taskSelList().length;
+  let btns='';
+  if(tab==='待接') btns=`<button class="tsb primary" onclick="taskBatchStrike()">⚔️ 出击</button><button class="tsb warn" onclick="taskBatchAbandon()">🚫 放弃</button><button class="tsb danger" onclick="taskBatchDestroy()">🗑️ 删除</button>`;
+  else if(tab==='进行中') btns=`<button class="tsb win" onclick="taskBatchWin()">🏆 凯旋</button><button class="tsb warn" onclick="taskBatchAbandon()">🚫 放弃</button><button class="tsb danger" onclick="taskBatchDestroy()">🗑️ 删除</button>`;
+  else btns=`<button class="tsb primary" onclick="taskBatchRestart()">🔁 重启</button><button class="tsb danger" onclick="taskBatchDestroy()">🗑️ 销毁</button>`;
+  return `<div class="task-selbar">
+    <button class="tsb ghost" onclick="taskSelAll()">${(n&&n===total)?'取消全选':'全选'}</button>
+    <span class="task-sel-count">已选 ${n}</span>
+    ${btns}
+    <button class="tsb ghost" onclick="taskToggleSel()">✕ 退出</button>
+  </div>`;
+}
+function selIds(){
+  if(!state.taskSel||!state.taskSel.size){ toast('先勾选委托'); return null; }
+  return [...state.taskSel];
+}
+function afterBatch(msg){
+  haptic(); saveDB();
+  if(state.taskSel) state.taskSel=new Set();
+  renderTaskCols(); toast(msg);
+}
+function taskBatchStrike(){
+  const ids=selIds(); if(!ids) return;
+  const multis=ids.map(taskById).filter(t=>t&&(t.plans||[]).length>1);
+  if(multis.length){
+    let rows='';
+    for(const t of multis){
+      const ps=sortPlans(t);
+      const minId=ps.slice().sort((a,b)=>(+a.amount||0)-(+b.amount||0))[0].id;
+      const opts=ps.map(p=>`<option value="${p.id}"${p.id===minId?' selected':''}>${escTask(p.name)} · ¥${fmtMoney(+p.amount||0)}</option>`).join('');
+      rows+=`<div class="task-field"><label>${escTask(t.name)}（多方案，默认最便宜）</label><select class="tf-plan-select" data-tid="${t.id}" style="width:100%;padding:10px;border-radius:9px;border:1px solid var(--separator);background:var(--card);color:var(--label);font-size:14px;">${opts}</select></div>`;
+    }
+    state.taskBatchIds=ids;
+    openSheet(`<div class="task-modal-title">⚔️ 批量出击 · ${ids.length} 个委托</div>
+      <div class="task-card-sub" style="margin-bottom:10px">单方案的将直接出击；多方案的请指定方案（默认选最便宜）：</div>
+      ${rows}
+      <div class="task-sheet-btnrow"><button class="task-btn-ghost" onclick="closeSheet()">取消</button><button class="task-btn-primary" onclick="confirmBatchStrike()">确认出击</button></div>`);
+    return;
+  }
+  ids.forEach(id=>{const t=taskById(id); if(t&&t.status==='待接'&&(t.plans||[]).length===1){ t.lockedPlanId=t.plans[0].id; t.status='进行中'; }});
+  afterBatch('⚔️ 已批量出击 '+ids.length+' 个委托');
+}
+function confirmBatchStrike(){
+  const ids=state.taskBatchIds||[]; let n=0;
+  ids.forEach(id=>{
+    const t=taskById(id); if(!t||t.status!=='待接') return;
+    const sel=document.querySelector(`select.tf-plan-select[data-tid="${id}"]`);
+    const pid= sel? +sel.value : ((t.plans||[])[0]||{}).id;
+    if(pid){ t.lockedPlanId=pid; t.status='进行中'; n++; }
+  });
+  state.taskBatchIds=null;
+  haptic(); saveDB(); closeSheet();
+  if(state.taskSel) state.taskSel=new Set();
+  renderTaskCols(); toast('⚔️ 已批量出击 '+n+' 个委托');
+}
+function taskBatchAbandon(){
+  const ids=selIds(); if(!ids) return;
+  ids.forEach(id=>{const t=taskById(id); if(t&&(t.status==='待接'||t.status==='进行中')) t.status='搁置';});
+  afterBatch('🚫 已批量搁置 '+ids.length+' 个');
+}
+function taskBatchWin(){
+  const ids=selIds(); if(!ids) return;
+  ids.forEach(id=>{const t=taskById(id); if(t&&t.status==='进行中'){ if(t.lockedPlanId){const lp=t.plans.find(p=>p.id===t.lockedPlanId); if(lp) lp.status='done';} t.status='凯旋'; }});
+  afterBatch('🏆 已批量凯旋 '+ids.length+' 个');
+}
+function taskBatchRestart(){
+  const ids=selIds(); if(!ids) return;
+  ids.forEach(id=>{const t=taskById(id); if(t&&(t.status==='凯旋'||t.status==='搁置')){ t.status='待接'; t.lockedPlanId=null; }});
+  afterBatch('🔁 已批量重启 '+ids.length+' 个');
+}
+function taskBatchDestroy(){
+  const ids=selIds(); if(!ids) return;
+  if(!confirm('确定销毁选中的 '+ids.length+' 个委托？此操作不可恢复。')) return;
+  const kill=new Set(ids);
+  DB.tasks=DB.tasks.filter(t=>!kill.has(t.id));
+  afterBatch('🗑️ 已销毁 '+ids.length+' 个');
+}
+
 function renderTaskList(){
   const box=document.getElementById('taskList'); if(!box) return;
   const tab=state.taskTab||'待接';
   const q=(state.taskSearch||'').trim().toLowerCase();
-  const match=t=>{ if(!q) return true; if(t.name.toLowerCase().includes(q)) return true; return (t.plans||[]).some(p=>p.name.toLowerCase().includes(q)); };
-  const list=(DB.tasks||[]).filter(t=>t.status===tab&&match(t));
+  const list=(DB.tasks||[]).filter(t=>t.status===tab&&taskMatch(t,q));
   if(!list.length){ box.innerHTML=`<div class="task-empty">— 暂无 —</div>`; return; }
   box.innerHTML=list.map(taskCardHtml).join('');
 }
@@ -6237,6 +6361,7 @@ function taskBackHtml(t){
 }
 function taskCardHtml(t){
   const id=t.id; const ps=t.plans||[];
+  const sel=state.taskSel;
   let btns=''; let priceLine=''; let title=escTask(t.name);
   if(t.status==='待接'){
     btns=`<button class="tb-edit" onclick="event.stopPropagation();openTaskEdit(${id})">编辑</button><button class="tb-go" onclick="event.stopPropagation();taskStrike(${id})">⚔️ 出击</button><button class="tb-drop" onclick="event.stopPropagation();taskAbandon(${id})">放弃</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
@@ -6255,16 +6380,17 @@ function taskCardHtml(t){
     priceLine='💰 放下省下 ¥'+fmtMoney(taskAbandonAmt(t));
   }
   const front=`<div class="task-face front">
-    <div class="task-card-head"><span class="task-card-title">${title}</span><span class="task-card-btns">${btns}</span></div>
+    <div class="task-card-head">${sel?`<span class="task-check${sel.has(id)?' on':''}">✓</span>`:''}<span class="task-card-title">${title}</span><span class="task-card-btns">${btns}</span></div>
     <div class="task-card-info">
       ${t.createdAt?`<div>📅 创建日期 ${escTask(t.createdAt)}</div>`:''}
       <div class="price">${priceLine}</div>
       ${t.note?`<div>📝 ${escTask(t.note)}</div>`:''}
     </div>
-    ${ps.length?`<div class="task-flip-hint">👆 点卡片翻面看 ${ps.length} 个备选方案</div>`:''}
+    ${ps.length&&!sel?`<div class="task-flip-hint">👆 点卡片翻面看 ${ps.length} 个备选方案</div>`:''}
   </div>`;
   const back=`<div class="task-face back"><div class="task-card-title" style="margin-bottom:4px">📋 备选方案</div>${taskBackHtml(t)}</div>`;
-  return `<div class="task-card"${ps.length?` onclick="taskCardTap(${id})"`:''}>
+  const act = sel? `taskSelToggle(${id})` : (ps.length?`taskCardTap(${id})`:'');
+  return `<div class="task-card${sel?' selmode':''}${sel&&sel.has(id)?' selon':''}"${act?` onclick="${act}"`:''}>
     <div class="task-flip" id="taskFlip${id}"><div class="task-flip-inner">${front}${back}</div></div>
   </div>`;
 }
