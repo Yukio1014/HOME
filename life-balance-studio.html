@@ -985,7 +985,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.13'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.14'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -6143,6 +6143,20 @@ function taskById(id){ return (DB.tasks||[]).find(t=>t.id===id); }
 function taskNextId(){ const ts=DB.tasks||[]; return ts.length? Math.max(...ts.map(t=>t.id))+1 : 1; }
 function planMin(t){ const ps=t.plans||[]; if(!ps.length) return 0; return Math.min(...ps.map(p=>+p.amount||0)); }
 function planMax(t){ const ps=t.plans||[]; if(!ps.length) return 0; return Math.max(...ps.map(p=>+p.amount||0)); }
+// 总重量展示：单方案返回该方案总重；多方案返回 总重区间（无规格数据的方案不参与）
+function planWeightStr(p){
+  const d=planDerived(p);
+  if(!(d.totalSpec>0)) return '';
+  return '📦总重 '+fmtMoney(d.totalSpec)+(escTask(p.unit)||'单位');
+}
+function taskWeightStr(t){
+  const ps=(t.plans||[]).filter(p=>planDerived(p).totalSpec>0);
+  if(!ps.length) return '';
+  const ws=ps.map(p=>planDerived(p).totalSpec);
+  const min=Math.min(...ws), max=Math.max(...ws);
+  const unit=escTask(ps[0].unit)||'单位';
+  return min===max ? '📦总重 '+fmtMoney(min)+unit : '📦总重 '+fmtMoney(min)+'~'+fmtMoney(max)+unit;
+}
 function taskAbandonAmt(t){ const ps=t.plans||[]; if(t.lockedPlanId){ const lp=ps.find(p=>p.id===t.lockedPlanId); if(lp) return +lp.amount||0; } return planMin(t); }
 function sortPlans(t){ return (t.plans||[]).slice().sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)); }
 const TASK_TABS=[
@@ -6354,7 +6368,8 @@ function taskBackHtml(t){
     const mark = p.status==='done' ? '✅' : (t.status==='进行中'&&p.id===t.lockedPlanId ? '⚔️' : '🟢');
     const d=planDerived(p);
     const unitStr = (d.spec>0 && d.unitPrice>0) ? ` · <span style="color:#FF9500;">≈¥${fmtMoney(d.unitPrice)}/${escTask(p.unit)||'单位'}</span>` : '';
-    const meta=[ '¥'+fmtMoney(+p.amount||0)+unitStr, p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
+    const wStr = (d.totalSpec>0) ? ' · <span style="color:#FF9500;">'+planWeightStr(p)+'</span>' : '';
+    const meta=[ '¥'+fmtMoney(+p.amount||0)+wStr+unitStr, p.note?('备注：'+escTask(p.note)):'' ].filter(Boolean).join(' · ');
     return `<div class="task-plan-back"><span class="task-plan-status">${mark}</span>
       <div style="flex:1;min-width:0"><div class="task-plan-name">${escTask(p.name)}</div><div class="task-plan-meta">${meta}</div></div></div>`;
   }).join('');
@@ -6365,16 +6380,19 @@ function taskCardHtml(t){
   let btns=''; let priceLine=''; let title=escTask(t.name);
   if(t.status==='待接'){
     btns=`<button class="tb-edit" onclick="event.stopPropagation();openTaskEdit(${id})">编辑</button><button class="tb-go" onclick="event.stopPropagation();taskStrike(${id})">⚔️ 出击</button><button class="tb-drop" onclick="event.stopPropagation();taskAbandon(${id})">放弃</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
-    priceLine= ps.length? (ps.length===1?'💰 价格 ¥'+fmtMoney(planMin(t)):'💰 价格区间 ¥'+fmtMoney(planMin(t))+' ~ ¥'+fmtMoney(planMax(t))) : '💰 暂无方案，点「编辑」添加';
+    const wStr=taskWeightStr(t);
+    priceLine= ps.length? ((ps.length===1?'💰 价格 ¥'+fmtMoney(planMin(t)):'💰 价格区间 ¥'+fmtMoney(planMin(t))+' ~ ¥'+fmtMoney(planMax(t)))+(wStr?' · <span style="color:#FF9500;">'+wStr+'</span>':'')) : '💰 暂无方案，点「编辑」添加';
   } else if(t.status==='进行中'){
     const lp=ps.find(p=>p.id===t.lockedPlanId);
     btns=`<button class="tb-win" onclick="event.stopPropagation();taskWin(${id})">🏆 凯旋</button><button class="tb-drop" onclick="event.stopPropagation();taskAbandon(${id})">放弃</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
     title=escTask(t.name)+(lp?`（${escTask(lp.name)}）`:'');
-    priceLine='💰 赏金 ¥'+fmtMoney(+(lp?lp.amount:planMin(t))||0);
+    const lpW=lp?planWeightStr(lp):'';
+    priceLine='💰 赏金 ¥'+fmtMoney(+(lp?lp.amount:planMin(t))||0)+(lpW?' · <span style="color:#FF9500;">'+lpW+'</span>':'');
   } else if(t.status==='凯旋'){
     const lp=ps.find(p=>p.id===t.lockedPlanId);
     btns=`<button class="tb-re" onclick="event.stopPropagation();taskRestart(${id})">🔁 重启</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
-    priceLine='✅ '+(lp?escTask(lp.name):'—')+' · 赏金 ¥'+fmtMoney(+(lp?lp.amount:0)||0);
+    const lpW=lp?planWeightStr(lp):'';
+    priceLine='✅ '+(lp?escTask(lp.name):'—')+' · 赏金 ¥'+fmtMoney(+(lp?lp.amount:0)||0)+(lpW?' · <span style="color:#FF9500;">'+lpW+'</span>':'');
   } else {
     btns=`<button class="tb-re" onclick="event.stopPropagation();taskRestart(${id})">🔁 重启</button><button class="tb-del" onclick="event.stopPropagation();taskDestroy(${id})">🗑️</button>`;
     priceLine='💰 放下省下 ¥'+fmtMoney(taskAbandonAmt(t));
