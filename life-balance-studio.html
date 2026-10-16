@@ -415,16 +415,16 @@ input,textarea{font-family:inherit;}
 .tsb.warn{background:rgba(255,149,0,.16);color:#FF9500;}
 .tsb.danger{background:rgba(255,59,48,.12);color:var(--red);}
 .tsb.ghost{background:rgba(118,118,128,.12);color:var(--label-2);}
-.task-card.selmode{cursor:pointer;}
-.task-card.selon{outline:2px solid var(--blue);outline-offset:-2px;}
+.td-card.selmode{cursor:pointer;}
+.td-card.selon{outline:2px solid var(--blue);outline-offset:-2px;}
 .task-check{width:22px;height:22px;border-radius:50%;border:2px solid var(--label-3);flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:transparent;margin-right:2px;}
 .task-check.on{background:var(--blue);border-color:var(--blue);color:#fff;}
 .task-search-row{margin-bottom:12px;}
 .task-empty{font-size:13px;color:var(--label-3);padding:8px 2px;}
-.task-card{perspective:1200px;margin-bottom:12px;}
+.td-card{perspective:1200px;margin-bottom:12px;}
 .task-flip-inner{position:relative;transform-style:preserve-3d;transition:transform .4s ease;}
 .task-flip.on .task-flip-inner{transform:rotateY(180deg);}
-.task-face{backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--card);border-radius:var(--radius-lg);padding:12px 14px;box-shadow:var(--shadow-card);}
+.task-face{backface-visibility:hidden;-webkit-backface-visibility:hidden;width:100%;box-sizing:border-box;background:var(--card);border-radius:var(--radius-lg);padding:14px 16px;box-shadow:var(--shadow-card);}
 .task-face.back{position:absolute;top:0;left:0;width:100%;transform:rotateY(180deg);box-sizing:border-box;}
 .task-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;}
 .task-card-title{font-size:16px;font-weight:700;flex:1;min-width:0;word-break:break-word;padding-top:4px;}
@@ -521,10 +521,12 @@ input,textarea{font-family:inherit;}
 .sheet-input:focus{outline:none;border-color:var(--blue);}
 .sheet-textarea{min-height:80px;resize:none;}
 
-.cat-select{display:flex;flex-wrap:wrap;gap:8px;}
+.cat-select{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
 .cat-opt{
-  padding:8px 14px;border-radius:18px;background:var(--bg);
-  font-size:14px;transition:all .15s;
+  display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  box-sizing:border-box;min-height:36px;padding:6px 14px;border-radius:12px;
+  background:var(--bg);font-size:13px;line-height:1;white-space:nowrap;
+  text-align:center;transition:all .15s;
 }
 .cat-opt.selected{background:var(--blue);color:#fff;}
 
@@ -985,7 +987,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.14'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.0.15'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -4002,7 +4004,7 @@ function catPickerHTML(curGroup, curSub){
 }
 function catGroupChipHTML(g, on){
   return `<div class="cat-opt" data-gid="${g.id}" onclick="pickCatGroup('${g.id}')"
-    style="${on?`background:${g.color};color:#fff;`:''}cursor:pointer;${on?'font-weight:600;':''}">${g.icon||''} ${g.name}</div>`;
+    style="${on?`background:${g.color};color:#fff;`:''}cursor:pointer;${on?'font-weight:600;':''}">${(g.icon?g.icon+' ':'')}${g.name}</div>`;
 }
 function catSubsHTML(){
   const g = getCatGroup(pickerState.group);
@@ -4260,7 +4262,7 @@ function motivePickerHTML(curMotive, curSub){
   pickerState.motiveSub = curSub || '';
   return `
     <div class="cat-select" id="motivePicker">
-      ${(DB.motives||[]).map(m=>`<div class="cat-opt" onclick="pickMotive('${m.id}')" style="${m.id===pickerState.motive?'background:#FF9500;color:#fff;font-weight:600;':''}cursor:pointer;">${m.icon||''} ${m.name}</div>`).join('')}
+      ${(DB.motives||[]).map(m=>`<div class="cat-opt" onclick="pickMotive('${m.id}')" style="${m.id===pickerState.motive?'background:#FF9500;color:#fff;font-weight:600;':''}cursor:pointer;">${(m.icon?m.icon+' ':'')}${m.name}</div>`).join('')}
     </div>
     <div id="motivePickerSubs" style="margin-top:8px;">${motiveSubsHTML()}</div>`;
 }
@@ -6408,7 +6410,7 @@ function taskCardHtml(t){
   </div>`;
   const back=`<div class="task-face back"><div class="task-card-title" style="margin-bottom:4px">📋 备选方案</div>${taskBackHtml(t)}</div>`;
   const act = sel? `taskSelToggle(${id})` : (ps.length?`taskCardTap(${id})`:'');
-  return `<div class="task-card${sel?' selmode':''}${sel&&sel.has(id)?' selon':''}"${act?` onclick="${act}"`:''}>
+  return `<div class="td-card${sel?' selmode':''}${sel&&sel.has(id)?' selon':''}"${act?` onclick="${act}"`:''}>
     <div class="task-flip" id="taskFlip${id}"><div class="task-flip-inner">${front}${back}</div></div>
   </div>`;
 }
