@@ -490,10 +490,11 @@ input,textarea{font-family:inherit;}
 .sheet-overlay.show{opacity:1;pointer-events:auto;}
 .sheet{
   position:fixed;left:0;right:0;bottom:0;
+  width:100%;max-width:100vw;box-sizing:border-box;overflow-x:hidden;
   background:var(--card);border-radius:20px 20px 0 0;
   padding:8px 16px calc(20px + var(--safe-bottom));
   transform:translateY(100%);
-  transition:transform .25s cubic-bezier(.32,.72,0,1);
+  transition:transform .25s cubic-bezier(.32,.72,0,1),bottom .15s ease,max-height .15s ease;
   z-index:201;max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   box-shadow:0 -4px 24px rgba(0,0,0,.12);
   touch-action:pan-y;          /* 只允许面板内部上下滚动 */
@@ -511,26 +512,35 @@ input,textarea{font-family:inherit;}
   scroll-margin-bottom:300px;
 }
 
-.sheet-field{margin-bottom:14px;}
+.sheet-field{margin-bottom:14px;width:100%;max-width:100%;min-width:0;}
 .sheet-label{font-size:14px;color:var(--label-3);margin-bottom:6px;}
 .sheet-input{
-  width:100%;border:1px solid var(--separator);border-radius:10px;
+  width:100%;max-width:100%;min-width:0;box-sizing:border-box;
+  border:1px solid var(--separator);border-radius:10px;
   padding:12px 14px;font-size:16px;background:var(--card-2);
+  -webkit-appearance:none;appearance:none;
   transition:border-color .2s;
 }
 .sheet-input:focus{outline:none;border-color:var(--blue);}
 .sheet-textarea{min-height:80px;resize:none;}
 
-.cat-select{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.cat-select{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%;max-width:100%;min-width:0;}
 .cat-opt{
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
   box-sizing:border-box;min-height:36px;padding:6px 14px;border-radius:12px;
   background:var(--bg);font-size:13px;line-height:1;white-space:nowrap;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;
   text-align:center;transition:all .15s;
 }
 .cat-opt.selected{background:var(--blue);color:#fff;}
 
-.sheet-actions{display:flex;gap:10px;margin-top:18px;}
+.sheet-actions{
+  display:flex;gap:10px;margin-top:18px;
+  position:sticky;bottom:0;z-index:3;
+  background:var(--card);
+  padding:10px 0 calc(6px + var(--safe-bottom));
+  box-shadow:0 -10px 14px -14px rgba(0,0,0,.25);
+}
 .sheet-btn{
   flex:1;height:50px;border-radius:14px;font-size:16px;font-weight:600;
   transition:transform .1s;
@@ -676,23 +686,29 @@ input,textarea{font-family:inherit;}
   border-bottom:1px solid var(--separator);margin-bottom:4px;
   font-size:12px;color:var(--label-3);font-weight:600;
 }
-.cmp-pair-head .cmp-pair-name{flex:1;text-align:left;}
-.cmp-pair-head .cmp-pair-col{width:80px;text-align:right;}
+.cmp-pair-head .cmp-pair-name{flex:1;min-width:0;text-align:left;}
+.cmp-pair-head .cmp-pair-col{flex:0 0 auto;max-width:46%;text-align:right;}
 .cmp-pair-row{
-  display:flex;align-items:center;padding:12px 0;
+  display:flex;align-items:center;gap:8px;padding:12px 0;
   border-bottom:.5px solid var(--separator);
 }
 .cmp-pair-row:last-child{border-bottom:none;}
 .cmp-pair-row.total-row{font-weight:700;border-top:1px solid var(--separator);margin-top:4px;padding-top:12px;}
-.cmp-pair-name{flex:1;font-size:15px;}
-.cmp-pair-col{width:80px;text-align:right;font-size:15px;}
+.cmp-pair-name{flex:1 1 auto;min-width:0;font-size:15px;}
+.cmp-pair-col{flex:0 0 auto;max-width:46%;min-width:0;text-align:right;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;}
 .cmp-pair-col.expense{color:var(--red);font-weight:600;}
 .cmp-pair-edit{
-  width:28px;height:28px;border-radius:6px;
+  width:28px;height:28px;border-radius:6px;flex:0 0 28px;
   display:flex;align-items:center;justify-content:center;
   color:var(--blue);font-size:14px;transition:background .15s;
 }
 .cmp-pair-edit:active{background:var(--bg);}
+.cmp-pair-manage{
+  flex:0 0 auto;padding:6px 10px;border-radius:8px;
+  background:rgba(0,122,255,.1);color:var(--blue);
+  font-size:12px;font-weight:600;white-space:nowrap;border:none;
+}
+.cmp-pair-manage:active{background:rgba(0,122,255,.2);}
 .cmp-pair-empty{text-align:center;padding:20px;color:var(--label-3);font-size:14px;}
 
 /* ===== 年度存档 ===== */
@@ -987,7 +1003,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.0.15'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.1.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -1635,15 +1651,24 @@ function getBonusTotal(m){
 }
 function calcMonthFinance(monthKey){
   const m = DB.finance[monthKey];
-  if(!m) return {expenseTotal:0,normalExpense:0,balance:0,catSummary:{},subSummary:{},motiveSummary:{},motiveTotal:0,advanceCats:{},advanceTotal:0,advanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,plan:{},catMeta:{},budget:0};
+  if(!m) return {expenseTotal:0,normalExpense:0,balance:0,catSummary:{},subSummary:{},motiveSummary:{},motiveTotal:0,advanceCats:{},advanceTotal:0,advanceCount:0,companyAdvanceCats:{},companyAdvanceTotal:0,companyAdvanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,plan:{},catMeta:{},budget:0};
   const catSummary = {};      // 大类（旧数据为自由文本）→ 金额
   const subSummary = {};      // 大类·子分类 → 金额
   const motiveSummary = {};   // 消费动机 → 金额
   let motiveTotal = 0;        // 已归因金额（动机为选填，故单独记录）
   const advanceCats = {};
+  const companyAdvanceCats = {};
   let advanceTotal = 0, advanceCount = 0, normalExpense = 0;
+  let companyAdvanceTotal = 0, companyAdvanceCount = 0;
   (m.expenses||[]).forEach(e=>{
     const k = catKeyOf(e);
+    // 公司垫付：完全剥离个人消费口径（不进分类/动机/预算/超支）
+    if(e.isCompanyAdvance){
+      companyAdvanceTotal += e.amount;
+      companyAdvanceCount++;
+      companyAdvanceCats[k] = (companyAdvanceCats[k]||0) + e.amount;
+      return;
+    }
     // 消费动机（选填）：普通消费 + 超前消费 都统计（超前消费也是「为什么花」），按主动机聚合
     if(e.motive){
       const mn = motiveName(e.motive) || (''+e.motive);
@@ -1669,9 +1694,9 @@ function calcMonthFinance(monthKey){
   const expenseTotal = normalExpense;
   // 额外收入（奖金/外快）：计入实际收入
   const bonusTotal = getBonusTotal(m);
-  // 月结金币 = (工资 + 额外收入) - 超前消费 - 普通消费
+  // 月结金币 = (工资 + 额外收入) - 超前消费 - 普通消费 - 公司垫付
   const goldPlanned = (m.incomePlanned||0) - advanceTotal - (m.budget||0);
-  const goldActual = (m.incomeActual||0) + bonusTotal - advanceTotal - normalExpense;
+  const goldActual = (m.incomeActual||0) + bonusTotal - advanceTotal - normalExpense - companyAdvanceTotal;
   const goldOverride = m.goldOverride;
   const goldFinal = goldOverride !== null ? goldOverride : goldActual;
   const balance = goldFinal;
@@ -1681,6 +1706,7 @@ function calcMonthFinance(monthKey){
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
     bonusTotal, incomeWithBonus:(m.incomeActual||0)+bonusTotal,
     advanceTotal, advanceCount, advanceCats,
+    companyAdvanceTotal, companyAdvanceCount, companyAdvanceCats,
     plan:m.plan, catMeta:m.catMeta||{},
     budget:m.budget||0,
     goldPlanned, goldActual, goldOverride, goldFinal
@@ -1824,6 +1850,10 @@ function openSheet(html){
   },100);
 }
 function closeSheet(){
+  // 关闭时强制收起键盘，避免键盘残留在页面上
+  if(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) document.activeElement.blur();
+  sheet.style.bottom = '';
+  sheet.style.maxHeight = '';
   sheet.classList.remove('show');
   sheetOverlay.classList.remove('show');
   // 恢复 body 滚动
@@ -1833,6 +1863,35 @@ function closeSheet(){
   document.body.style.width = '';
   window.scrollTo({top: bodyScrollY, behavior: 'instant'});
 }
+
+// ===== 软键盘 / 视口适配 =====
+// 1) 点击任意非输入区域：自动收起键盘（治「键盘收不回去」）
+document.addEventListener('pointerdown', e=>{
+  const t = e.target;
+  if(t && t.closest && t.closest('input,textarea,select,[contenteditable="true"]')) return;
+  const a = document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur();
+}, true);
+
+// 2) 键盘弹出时把底部抽屉整体抬到键盘上方，保证「取消/添加」始终可点
+function syncSheetToViewport(){
+  const vv = window.visualViewport;
+  if(!vv || !sheet) return;
+  if(!sheet.classList.contains('show')) return;
+  const kb = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0));
+  sheet.style.bottom = kb > 50 ? kb + 'px' : '0px';
+  sheet.style.maxHeight = Math.min(window.innerHeight * 0.85, vv.height) + 'px';
+}
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', syncSheetToViewport);
+  window.visualViewport.addEventListener('scroll', syncSheetToViewport);
+}
+// 输入框获得焦点后，等键盘动画结束再校正一次
+document.addEventListener('focusin', e=>{
+  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){
+    setTimeout(syncSheetToViewport, 350);
+  }
+}, true);
 
 // ===== 日期格式化 =====
 function fmtDate(){
@@ -2016,6 +2075,7 @@ function analyzeYearFinance(year){
   let totalIncome = 0, totalExpense = 0, totalGoldPlanned = 0, totalGoldActual = 0, totalBonus = 0;
   let planAccuracySum = 0, planAccuracyCount = 0;
   let totalAdvance = 0, advanceCount = 0;
+  let totalCompanyAdvance = 0, companyAdvanceCount = 0;
   const advanceByMonth = [];
 
   for(let m=1;m<=12;m++){
@@ -2023,8 +2083,13 @@ function analyzeYearFinance(year){
     const fin = DB.finance[mk];
     if(!fin) continue;
     const monthCats = {};
-    let monthAdvance = 0, monthAdvanceCount = 0;
+    let monthAdvance = 0, monthAdvanceCount = 0, monthCompanyAdvance = 0;
     (fin.expenses||[]).forEach(e=>{
+      // 公司垫付：完全剥离个人消费/动机/预算口径
+      if(e.isCompanyAdvance){
+        monthCompanyAdvance += e.amount;
+        return;
+      }
       if(e.isAdvance){
         // 超前消费：单独统计，不进消费总量
         monthAdvance += e.amount;
@@ -2037,7 +2102,7 @@ function analyzeYearFinance(year){
     });
     // 消费动机（选填）：普通 + 超前 都统计，按主动机聚合；同时记录二级子分布与超前放大部分
     (fin.expenses||[]).forEach(e=>{
-      if(!e.motive) return;
+      if(!e.motive || e.isCompanyAdvance) return;
       const mn = motiveName(e.motive) || (''+e.motive);
       motiveTotals[mn] = (motiveTotals[mn]||0) + e.amount;
       motiveTotal += e.amount;
@@ -2048,6 +2113,7 @@ function analyzeYearFinance(year){
     });
     totalAdvance += monthAdvance;
     advanceCount += monthAdvanceCount;
+    totalCompanyAdvance += monthCompanyAdvance;
     advanceByMonth.push({month:m, advance:monthAdvance, count:monthAdvanceCount});
 
     const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0);
@@ -2055,8 +2121,8 @@ function analyzeYearFinance(year){
     const monthIncome = (fin.incomeActual||0) + monthBonus;
     // 预计金币 = 预计工资 - 超前消费 - 预算
     const goldPlanned = (fin.incomePlanned||0) - monthAdvance - (fin.budget||0);
-    // 实际金币 = 实际工资+额外收入 - 超前消费 - 普通消费
-    const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthAdvance - monthExpense);
+    // 实际金币 = 实际工资+额外收入 - 超前消费 - 普通消费 - 公司垫付
+    const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthAdvance - monthExpense - monthCompanyAdvance);
 
     totalIncome += monthIncome;
     totalBonus += monthBonus;
@@ -2080,7 +2146,8 @@ function analyzeYearFinance(year){
       expense: monthExpense,
       cats: monthCats,
       advance: monthAdvance,
-      advanceCount: monthAdvanceCount
+      advanceCount: monthAdvanceCount,
+      companyAdvance: monthCompanyAdvance
     });
   }
 
@@ -2115,6 +2182,7 @@ function analyzeYearFinance(year){
     motiveSubBreakdown: motiveSubTotals,
     motiveAdv: motiveAdvTotals,
     totalAdvance, advanceCount, advanceByMonth,
+    totalCompanyAdvance, companyAdvanceCount,
     budgetTotal, peakAdvance, debtCarryOver,
     hasData: months.length > 0
   };
@@ -2737,7 +2805,7 @@ function renderArchiveModule(){
           <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
             <div style="font-size:11px;color:var(--label-3);">资源总消耗</div>
             <div style="font-size:16px;font-weight:800;color:var(--orange);">¥${fmtMoney(expense)}</div>
-            <div style="font-size:9px;color:var(--label-3);margin-top:1px;">${advance>0?'+ 越界 ¥'+fmtMoney(advance):'年度总消费'}</div>
+            <div style="font-size:9px;color:var(--label-3);margin-top:1px;">${advance>0?'+ 越界 ¥'+fmtMoney(advance):'年度总消费'}${(arc.companyAdvanceTotal||0)>0?' · 垫付未计入':''}</div>
           </div>
           <div style="flex:1;text-align:center;background:rgba(255,255,255,.65);border-radius:8px;padding:8px 4px;">
             <div style="font-size:11px;color:var(--label-3);">宝箱净增</div>
@@ -3019,6 +3087,7 @@ function archiveYear(year){
   const motiveAdvSummary = {};// 各主动机中「被超前/分期放大」的部分
   let motiveTotal = 0;        // 已归因金额（动机为选填）
   let incomeTotal = 0, expenseTotal = 0, savedTotal = 0, advanceTotal = 0, bonusTotal = 0;
+  let companyAdvanceTotal = 0;
   let budgetTotal = 0;
   let monthCount = 0;
   for(let m=1;m<=12;m++){
@@ -3026,8 +3095,14 @@ function archiveYear(year){
     const fin = DB.finance[mk];
     if(!fin) continue;
     monthCount++;
-    let monthAdvance = 0, monthExpense = 0;
+    let monthAdvance = 0, monthExpense = 0, monthCompanyAdvance = 0;
     (fin.expenses||[]).forEach(e=>{
+      // 公司垫付：不计入个人消费/动机/预算，单独汇总
+      if(e.isCompanyAdvance){
+        monthCompanyAdvance += e.amount;
+        companyAdvanceTotal += e.amount;
+        return;
+      }
       // 消费动机（选填）：普通 + 超前 都统计，按主动机聚合；同时记录二级子分布
       if(e.motive){
         const mn = motiveName(e.motive) || (''+e.motive);
@@ -3057,10 +3132,10 @@ function archiveYear(year){
     incomeTotal += (fin.incomeActual||0) + monthBonus;
     bonusTotal += monthBonus;
     budgetTotal += (fin.budget||0);
-    // 月结金币 = (实际工资+额外收入) - 超前 - 普通消费（goldOverride 优先）
+    // 月结金币 = (实际工资+额外收入) - 超前 - 普通消费 - 公司垫付（goldOverride 优先）
     let gold;
     if(fin.goldOverride !== null && fin.goldOverride !== undefined) gold = fin.goldOverride;
-    else gold = (fin.incomeActual||0) + monthBonus - monthAdvance - monthExpense;
+    else gold = (fin.incomeActual||0) + monthBonus - monthAdvance - monthExpense - monthCompanyAdvance;
     savedTotal += gold;
   }
 
@@ -3078,6 +3153,7 @@ function archiveYear(year){
     expenseTotal: expenseTotal,
     savedTotal: savedTotal,
     advanceTotal: advanceTotal,
+    companyAdvanceTotal: companyAdvanceTotal,
     catSummary: catSummary,
     subSummary: subSummary,
     motiveSummary: motiveSummary,
@@ -3111,10 +3187,11 @@ function renderMoney(c){
   const [y,m] = state.currentMonth.split('-');
   const monthData = DB.finance[state.currentMonth] || {incomePlanned:0,incomeActual:0,catMeta:{},goldOverride:null,expenses:[],plan:{},budget:0};
 
-  // 预算总盘子口径：已用 = 普通消费 + 超前消费
+  // 预算总盘子口径：已用 = 普通消费 + 超前消费（公司垫付完全不计入）
   const normalTotal = fin.normalExpense || 0;          // 正常消费
   const advanceTotal = fin.advanceTotal || 0;          // 超前消费
   const actualTotal = normalTotal + advanceTotal;      // 预算口径：总已用
+  const companyAdvanceTotal = fin.companyAdvanceTotal || 0; // 公司垫付（不计入预算）
   // 预算 = 总额（可编辑）
   const budget = fin.budget || 0;
   const diffTotal = actualTotal - budget;
@@ -3155,7 +3232,7 @@ function renderMoney(c){
         </div>
         ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;margin-top:6px;">⚠️ 已手动覆盖</div>' : ''}
         <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);">
-          = 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外收入 ¥${fmtMoney(fin.bonusTotal||0)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(normalTotal)}
+          = 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外收入 ¥${fmtMoney(fin.bonusTotal||0)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(normalTotal)} − 公司垫付 ¥${fmtMoney(companyAdvanceTotal)}
         </div>
       </div>
 
@@ -3203,7 +3280,7 @@ function renderMoney(c){
           <div style="font-size:13px;color:var(--label-3);">预算 ¥${fmtMoney(budget)}</div>
           <div style="text-align:right;">
             <div style="font-size:13px;font-weight:600;color:${diffTotal>0?'var(--red)':'var(--green)'};">已用 ¥${fmtMoney(actualTotal)} · ${diffTotal>0?'超支':'剩余'} ¥${fmtMoney(Math.abs(diffTotal))}</div>
-            <div style="font-size:11px;color:var(--label-3);margin-top:2px;">正常 ¥${fmtMoney(normalTotal)} · 超前 ¥${fmtMoney(advanceTotal)}</div>
+            <div style="font-size:11px;color:var(--label-3);margin-top:2px;">正常 ¥${fmtMoney(normalTotal)} · 超前 ¥${fmtMoney(advanceTotal)}${companyAdvanceTotal>0?' · 垫付 ¥'+fmtMoney(companyAdvanceTotal)+'（不计入）':''}</div>
           </div>
         </div>
         <!-- 渐变警示进度条：绿→黄→红 -->
@@ -3690,7 +3767,8 @@ let expandedCatKeys = new Set();
 function getExpenseRows(fin, monthData){
   const normalCats = Object.keys(fin.catSummary).sort((a,b)=> (fin.catSummary[b]||0) - (fin.catSummary[a]||0));
   const advanceCats = Object.keys(fin.advanceCats||{}).sort((a,b)=> (fin.advanceCats[b]||0) - (fin.advanceCats[a]||0));
-  if(!normalCats.length && !advanceCats.length && !(monthData.expenses||[]).length) return '<div class="cmp-pair-empty">暂无消费记录，点「＋录入消费」添加</div>';
+  const companyCats = Object.keys(fin.companyAdvanceCats||{}).sort((a,b)=> (fin.companyAdvanceCats[b]||0) - (fin.companyAdvanceCats[a]||0));
+  if(!normalCats.length && !advanceCats.length && !companyCats.length && !(monthData.expenses||[]).length) return '<div class="cmp-pair-empty">暂无消费记录，点「＋录入消费」添加</div>';
 
   let html = '';
 
@@ -3717,7 +3795,7 @@ function getExpenseRows(fin, monthData){
         .sort((a,b)=>b.val-a.val);
       const open = expandedCatKeys.has(key);
       // 该大类下的逐笔普通消费明细（按日期倒序）
-      const items = (monthData.expenses||[]).filter(e=>catKeyOf(e)===key && !e.isAdvance)
+      const items = (monthData.expenses||[]).filter(e=>catKeyOf(e)===key && !e.isAdvance && !e.isCompanyAdvance)
         .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
       let out = `
         <div class="cmp-pair-row">
@@ -3728,7 +3806,7 @@ function getExpenseRows(fin, monthData){
             <span style="font-size:10px;color:var(--label-3);flex-shrink:0;padding:0 2px;margin-left:2px;">${open?'▾':'▸'}${items.length||subs.length}</span>
           </span>
           <span class="cmp-pair-col expense">¥${fmtMoney(actual)}</span>
-          <button class="cmp-pair-edit" onclick="openExpenseCatManage('${safeKey}')">管理</button>
+          <button class="cmp-pair-manage" onclick="openExpenseCatManage('${safeKey}')">管理</button>
         </div>`;
       if(open){
         if(subs.length){
@@ -3779,6 +3857,38 @@ function getExpenseRows(fin, monthData){
     html += '</div>';
   }
 
+  // 公司垫付（单独区，完全不计入个人消费/预算）
+  if(companyCats.length){
+    const compTotal = fin.companyAdvanceTotal||0;
+    html += `<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--separator);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;">
+        <span style="font-size:13px;font-weight:600;color:#007AFF;">🏢 公司垫付 <span style="font-weight:400;font-size:11px;color:var(--label-3);">不计入个人消费</span></span>
+        <span style="font-size:13px;color:#007AFF;font-weight:600;flex-shrink:0;">¥${fmtMoney(compTotal)}</span>
+      </div>`;
+    html += companyCats.map(key=>{
+      const actual = fin.companyAdvanceCats[key] || 0;
+      const color = catKeyColor(key);
+      const itemsHtml = (monthData.expenses||[]).filter(e=>e.isCompanyAdvance && catKeyOf(e)===key)
+        .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+        .map(e=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0 3px 13px;font-size:12px;color:var(--label-2);">
+          <span style="color:var(--label-3);width:44px;flex-shrink:0;">${(e.date||'').slice(5)||'—'}</span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.note?escTask(e.note):'公司垫付'}</span>
+          <span style="color:#007AFF;flex-shrink:0;">¥${fmtMoney(e.amount)}</span>
+          <button class="cmp-pair-edit" style="width:24px;height:24px;font-size:12px;flex:0 0 24px;" onclick="editOneExpense('${e.id}')" title="修改金额">✎</button>
+        </div>`).join('');
+      return `<div style="padding:4px 0;font-size:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:var(--label-2);display:flex;align-items:center;gap:5px;min-width:0;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>${catKeyLabel(key)}
+          </span>
+          <span style="color:#007AFF;flex-shrink:0;">¥${fmtMoney(actual)}</span>
+        </div>${itemsHtml}
+      </div>`;
+    }).join('');
+    html += `<div style="font-size:11px;color:var(--label-3);padding-top:4px;">公司打款后，点「＋ 添加额外收入」记一笔即可平账</div>`;
+    html += '</div>';
+  }
+
   // 消费动机（选填）—— 为什么花
   const motEnt = Object.entries(fin.motiveSummary||{}).sort((a,b)=>b[1]-a[1]);
   if(motEnt.length){
@@ -3825,7 +3935,7 @@ function openExpenseCatManage(key){
   if(!m) return;
   selectedExpItemCat = key;
   catManageSubVal = '';
-  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===key && !e.isAdvance);
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===key && !e.isAdvance && !e.isCompanyAdvance);
   // 旧数据可能没 date，显示时兜底为该月 1 号（不污染原数据）
   const fallbackDate = state.currentMonth + '-01';
   const datedItems = items.map(e=>({...e, _displayDate: e.date || fallbackDate}));
@@ -3841,15 +3951,18 @@ function openExpenseCatManage(key){
     <div class="sheet-title" style="display:flex;align-items:center;gap:6px;">
       <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>${catKeyLabel(key)}
     </div>
-    <div style="font-size:12px;color:var(--label-3);margin-bottom:10px;">累计 ¥${fmtMoney(total)} · ${items.length}笔</div>
+    <div id="catManageTotal" style="font-size:12px;color:var(--label-3);margin-bottom:10px;">累计 ¥${fmtMoney(total)} · ${items.length}笔</div>
 
-    <!-- 明细列表：按日期倒序，可改备注/分类/日期、可删 -->
+    <!-- 明细列表：金额/备注可直接改，日期/分类可点、可删 -->
     <div style="padding:4px 0;border-bottom:.5px solid var(--separator);margin-bottom:12px;">
       ${sorted.map((e)=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg);border-radius:8px;margin:4px 0;">
           <div style="flex:1;min-width:0;">
-            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
-              <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <input class="sheet-input" id="catAmt_${e.id}" type="number" inputmode="decimal" value="${e.amount}" title="点击修改金额"
+                style="width:104px;height:32px;font-size:15px;font-weight:700;padding:0 8px;text-align:right;flex-shrink:0;"
+                onblur="saveCatExpenseAmount('${e.id}',this.value)"
+                onkeydown="if(event.key==='Enter'){this.blur();}">
               <span onclick="editExpenseDate('${e.id}')" style="font-size:11px;color:${e._displayDate===tdy?'var(--blue)':'var(--label-3)'};font-weight:${e._displayDate===tdy?'600':'500'};padding:2px 6px;border-radius:6px;background:${e._displayDate===tdy?'rgba(0,122,255,.08)':'transparent'};cursor:pointer;" title="点击修改日期">${shortDate(e._displayDate)}${e.date?'':'·旧'} <span style="opacity:.5;">📅</span></span>
               ${e.sub ? `<span style="font-size:11px;color:${color};background:${color}1A;padding:2px 6px;border-radius:6px;">${e.sub}</span>` : ''}
               ${e.motive ? `<span style="font-size:11px;color:var(--label-3);background:var(--bg-2,#F2F2F7);padding:2px 6px;border-radius:6px;">${motiveName(e.motive)||e.motive}${e.motiveSub?'·'+e.motiveSub:''}</span>` : ''}
@@ -3920,6 +4033,69 @@ function delCatExpenseEntry(id){
   // 重新打开管理面板
   openExpenseCatManage(selectedExpItemCat);
   renderMoney(document.getElementById('content'));
+}
+
+// 通用：修改单笔消费（金额/日期/备注），用于公司垫付等独立明细
+function editOneExpense(id){
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  const e = (m.expenses||[]).find(x=>x.id===id);
+  if(!e) return;
+  openSheet(`
+    <div class="sheet-title">✏️ 修改这笔</div>
+    <div class="sheet-field">
+      <div class="sheet-label">金额</div>
+      <input class="sheet-input" id="oneAmt" type="number" inputmode="decimal" value="${e.amount}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">日期</div>
+      <input class="sheet-input" id="oneDate" type="date" value="${e.date||todayStr()}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">备注</div>
+      <input class="sheet-input" id="oneNote" value="${escTask(e.note||'')}">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveOneExpense('${e.id}')">保存</button>
+    </div>
+  `);
+}
+function saveOneExpense(id){
+  const m = DB.finance[state.currentMonth];
+  if(!m) return;
+  const e = (m.expenses||[]).find(x=>x.id===id);
+  if(!e) return;
+  const v = parseFloat(document.getElementById('oneAmt').value);
+  if(!(v>0)){ toast('金额需大于 0'); return; }
+  e.amount = v;
+  const d = document.getElementById('oneDate').value;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d)) e.date = d;
+  e.note = document.getElementById('oneNote').value.trim();
+  saveDB(); closeSheet(); renderMoney(document.getElementById('content'));
+  toast('已修改为 ¥'+fmtMoney(v));
+}
+function saveCatExpenseAmount(id, val){
+  const m = DB.finance[state.currentMonth];
+  if(!m || !m.expenses) return;
+  const ent = m.expenses.find(x=>x.id===id);
+  if(!ent) return;
+  const v = parseFloat(val);
+  const el = document.getElementById('catAmt_'+id);
+  if(!(v > 0)){
+    toast('金额需大于 0');
+    if(el) el.value = ent.amount;
+    return;
+  }
+  if(ent.amount === v) return;
+  ent.amount = v;
+  saveDB();
+  const items = m.expenses.filter(e=>catKeyOf(e)===selectedExpItemCat && !e.isAdvance && !e.isCompanyAdvance);
+  const total = items.reduce((s,e)=>s+e.amount,0);
+  const totalEl = document.getElementById('catManageTotal');
+  if(totalEl) totalEl.textContent = '累计 ¥'+fmtMoney(total)+' · '+items.length+'笔';
+  renderMoney(document.getElementById('content'));
+  toast('金额已改为 ¥'+fmtMoney(v));
 }
 
 // 修改某条明细的日期（内联编辑）
@@ -4202,13 +4378,13 @@ function openAddExpenseItem(){
     <div class="sheet-field">
       <div class="sheet-label">买什么 · 大类</div>
       ${catPickerHTML(last, '')}
-      <div style="margin-top:8px;text-align:right;">
+      <div style="margin-top:8px;display:flex;justify-content:flex-end;">
         <span style="font-size:12px;color:var(--label-3);" onclick="openCatGroupManager()">⚙️ 管理大类 / 子分类</span>
       </div>
     </div>
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
-      <input class="sheet-input" id="expItemAmount" type="number" placeholder="0" oninput="checkMotiveRemind()">
+      <input class="sheet-input" id="expItemAmount" type="number" inputmode="decimal" placeholder="0" oninput="checkMotiveRemind()">
     </div>
     <div class="sheet-field">
       <div class="sheet-label">日期</div>
@@ -4232,13 +4408,26 @@ function openAddExpenseItem(){
 
     <!-- 板块三：超前消费（分期） -->
     <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">③ 超前消费（分期/赊账）</div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:4px;">
-      <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;" onchange="toggleAdvanceOptions()">
+    <label id="advanceToggleRow" style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:4px;">
+      <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;flex-shrink:0;" onchange="toggleAdvanceOptions()">
       <span style="color:var(--red);">标记为超前消费（从收入扣除）</span>
     </label>
     <div id="advanceOptions" style="display:none;padding:10px;background:#FFF3E0;border-radius:10px;font-size:12px;color:#795548;line-height:1.5;">
       勾选后，上方「金额」即作为本月这期的超前消费（分期/赊账）金额，例如本月餐饮分期还 ¥500 就填 500。<br>
       它会自动从工资中扣除，不计入消费流水。
+    </div>
+
+    <div style="height:1px;background:var(--separator);margin:10px 0;"></div>
+
+    <!-- 板块四：公司垫付 -->
+    <div class="sheet-label" style="font-size:13px;color:var(--label-3);margin-bottom:6px;">④ 公司垫付（报销）</div>
+    <label id="companyAdvanceToggleRow" style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:4px;">
+      <input type="checkbox" id="expItemCompanyAdvance" style="width:20px;height:20px;flex-shrink:0;" onchange="toggleCompanyAdvance()">
+      <span style="color:#007AFF;font-weight:600;">🏢 标记为垫付（不计入个人消费/预算）</span>
+    </label>
+    <div id="companyAdvanceHint" style="display:none;padding:10px;background:#EAF3FF;border-radius:10px;font-size:12px;color:#0B5FA5;line-height:1.5;">
+      这笔钱不会计入「个人消费」「已用预算」和「超支警告」，会在战录中单独显示为「🏢 公司垫付」。<br>
+      公司打款后，直接点「＋ 添加额外收入」记一笔，即可自动平账，无需额外操作。
     </div>
 
     <div class="sheet-actions" style="margin-top:14px;">
@@ -4430,9 +4619,38 @@ function deleteCatGroup(gid){
 function toggleAdvanceOptions(){
   const checked = document.getElementById('expItemAdvance').checked;
   document.getElementById('advanceOptions').style.display = checked ? 'block' : 'none';
+  // 超前消费与公司垫付互斥
+  const comp = document.getElementById('expItemCompanyAdvance');
+  if(checked && comp && comp.checked){
+    comp.checked = false;
+    toggleCompanyAdvance();
+  }
+}
+
+// 公司垫付：与超前消费互斥，勾选后剔除个人消费/预算口径
+function toggleCompanyAdvance(){
+  const comp = document.getElementById('expItemCompanyAdvance');
+  const adv = document.getElementById('expItemAdvance');
+  const hint = document.getElementById('companyAdvanceHint');
+  if(!comp) return;
+  if(comp.checked && adv){
+    adv.checked = false;
+    adv.disabled = true;
+    const row = document.getElementById('advanceToggleRow');
+    if(row) row.style.opacity = '.45';
+    const opts = document.getElementById('advanceOptions');
+    if(opts) opts.style.display = 'none';
+  } else if(adv){
+    adv.disabled = false;
+    const row = document.getElementById('advanceToggleRow');
+    if(row) row.style.opacity = '';
+  }
+  if(hint) hint.style.display = comp.checked ? 'block' : 'none';
 }
 
 function confirmAddExpenseItem(){
+  // 保存前强制收键盘，避免按钮被遮挡/页面卡住
+  if(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) document.activeElement.blur();
   const amount = parseFloat(document.getElementById('expItemAmount').value)||0;
   if(!amount){ toast('请输入金额'); return; }
   const gid = pickerState.group;
@@ -4440,7 +4658,8 @@ function confirmAddExpenseItem(){
   const nm = groupName(gid);
   const sub = pickerState.sub || '';
   const note = document.getElementById('expItemNote').value.trim();
-  const isAdvance = document.getElementById('expItemAdvance').checked;
+  const isCompanyAdvance = !!(document.getElementById('expItemCompanyAdvance')||{}).checked;
+  const isAdvance = !isCompanyAdvance && !!document.getElementById('expItemAdvance').checked;
   const dateInp = document.getElementById('expItemDate');
   const date = (dateInp && dateInp.value && /^\d{4}-\d{2}-\d{2}$/.test(dateInp.value)) ? dateInp.value : todayStr();
   haptic();
@@ -4449,22 +4668,25 @@ function confirmAddExpenseItem(){
   if(!m.expenses) m.expenses = [];
   if(!m.plan) m.plan = {};
 
-  const rec = {id:'e'+Date.now(), cat:nm, group:gid, amount, note, isAdvance:isAdvance, date};
+  const rec = {id:'e'+Date.now(), cat:nm, group:gid, amount, note, isAdvance:isAdvance, isCompanyAdvance:isCompanyAdvance, date};
   if(sub) rec.sub = sub;
   if(pickerState.motive){
     rec.motive = pickerState.motive;
     if(pickerState.motiveSub) rec.motiveSub = pickerState.motiveSub;
   }
-  if(isAdvance && !note) rec.note = '超前消费';
+  if(isCompanyAdvance && !note) rec.note = '公司垫付';
+  else if(isAdvance && !note) rec.note = '超前消费';
   m.expenses.push(rec);
-  if(!isAdvance && m.plan[nm]===undefined) m.plan[nm] = 0;
+  if(!isAdvance && !isCompanyAdvance && m.plan[nm]===undefined) m.plan[nm] = 0;
   state.lastExpGroup = gid;
   saveDB();
   closeSheet();
   renderMoney(document.getElementById('content'));
   emitSaved();
   const tail = sub ? '·'+sub : '';
-  if(isAdvance){
+  if(isCompanyAdvance){
+    toast('已记入公司垫付 ¥'+fmtMoney(amount)+'（'+nm+tail+'，不计入个人消费）');
+  } else if(isAdvance){
     toast('已添加超前消费 ¥'+fmtMoney(amount)+'（'+nm+tail+'，从收入扣除）');
   } else {
     toast('已记入'+nm+tail+' ¥'+fmtMoney(amount));
@@ -4512,7 +4734,7 @@ function editExpenseItem(key){
   const m = DB.finance[state.currentMonth];
   if(!m) return;
   selectedEditCat = key;
-  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===key);
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===key && e.isAdvance);
   const total = items.reduce((s,e)=>s+e.amount,0);
   const color = catKeyColor(key);
   openSheet(`
@@ -4525,7 +4747,8 @@ function editExpenseItem(key){
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${e.isAdvance?'background:#FFF3E0;border-radius:8px;padding:8px;margin:4px 0;':''}">
           <div style="flex:1;min-width:0;">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-              <span style="font-size:14px;font-weight:600;">¥${fmtMoney(e.amount)}</span>
+              <input class="sheet-input" id="expAmt_${idx}" type="number" inputmode="decimal" value="${e.amount}" title="点击修改金额"
+                style="width:104px;height:32px;font-size:15px;font-weight:700;padding:0 8px;text-align:right;flex-shrink:0;">
               <span style="font-size:11px;color:var(--label-3);">${shortDate(e.date||(state.currentMonth+'-01'))}</span>
               ${e.sub ? `<span style="font-size:11px;color:${color};background:${color}1A;padding:2px 6px;border-radius:6px;">${e.sub}</span>` : ''}
               ${e.motive ? `<span style="font-size:11px;color:var(--label-3);">${motiveName(e.motive)||''}${e.motiveSub?'·'+e.motiveSub:''}</span>` : ''}
@@ -4557,7 +4780,7 @@ function editExpenseItem(key){
 function toggleAdvSingle(idx){
   const m = DB.finance[state.currentMonth];
   if(!m || !m.expenses) return;
-  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===selectedEditCat);
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===selectedEditCat && e.isAdvance);
   const el = document.getElementById('expAdvance_'+idx);
   if(el && items[idx]) items[idx].isAdvance = el.checked;
 }
@@ -4583,8 +4806,13 @@ function saveExpenseItem(){
   haptic();
   const m = DB.finance[state.currentMonth];
   if(!m) return;
-  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===selectedEditCat);
+  const items = (m.expenses||[]).filter(e=>catKeyOf(e)===selectedEditCat && e.isAdvance);
   items.forEach((e,idx)=>{
+    const amtEl = document.getElementById('expAmt_'+idx);
+    if(amtEl){
+      const v = parseFloat(amtEl.value);
+      if(v > 0) e.amount = v;
+    }
     const noteEl = document.getElementById('expNote_'+idx);
     if(noteEl) e.note = noteEl.value.trim();
     const advEl = document.getElementById('expAdvance_'+idx);
