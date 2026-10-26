@@ -1003,7 +1003,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.1.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.1.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -3970,7 +3970,7 @@ function openExpenseCatManage(key){
             <input class="sheet-input" id="catNote_${e.id}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="备注" style="width:140px;height:28px;font-size:13px;margin-top:4px;padding:0 8px;display:inline-block;">
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0;">
-            <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:15px;" onclick="openReclassOne('${e.id}')" title="改分类">🏷</button>
+            <button class="cmp-pair-edit" style="width:36px;height:36px;font-size:15px;" onclick="openReclassOne('${e.id}')" title="改分类 / 状态">🏷</button>
             <button class="cmp-pair-edit" style="background:#FFEBEE;color:var(--red);width:36px;height:36px;font-size:16px;" onclick="delCatExpenseEntry('${e.id}')">🗑</button>
           </div>
         </div>
@@ -4035,12 +4035,14 @@ function delCatExpenseEntry(id){
   renderMoney(document.getElementById('content'));
 }
 
-// 通用：修改单笔消费（金额/日期/备注），用于公司垫付等独立明细
+// 通用：修改单笔消费（金额/日期/备注/状态），用于公司垫付等独立明细
+let oneStatus = 'normal';
 function editOneExpense(id){
   const m = DB.finance[state.currentMonth];
   if(!m) return;
   const e = (m.expenses||[]).find(x=>x.id===id);
   if(!e) return;
+  oneStatus = e.isCompanyAdvance ? 'company' : (e.isAdvance ? 'advance' : 'normal');
   openSheet(`
     <div class="sheet-title">✏️ 修改这笔</div>
     <div class="sheet-field">
@@ -4055,11 +4057,27 @@ function editOneExpense(id){
       <div class="sheet-label">备注</div>
       <input class="sheet-input" id="oneNote" value="${escTask(e.note||'')}">
     </div>
+    <div class="sheet-field">
+      <div class="sheet-label">这笔钱的状态</div>
+      <div class="cat-select" id="oneStatusGroup">
+        <div class="cat-opt${oneStatus==='normal'?' selected':''}" id="oneStatus_normal" onclick="pickOneStatus('normal')">🟢 正常消费</div>
+        <div class="cat-opt${oneStatus==='advance'?' selected':''}" id="oneStatus_advance" onclick="pickOneStatus('advance')">⚠️ 超前消费</div>
+        <div class="cat-opt${oneStatus==='company'?' selected':''}" id="oneStatus_company" onclick="pickOneStatus('company')">🏢 公司垫付</div>
+      </div>
+    </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
       <button class="sheet-btn sheet-btn-primary" onclick="saveOneExpense('${e.id}')">保存</button>
     </div>
   `);
+}
+function pickOneStatus(s){
+  haptic();
+  oneStatus = s;
+  ['normal','advance','company'].forEach(k=>{
+    const el = document.getElementById('oneStatus_'+k);
+    if(el) el.classList.toggle('selected', k===s);
+  });
 }
 function saveOneExpense(id){
   const m = DB.finance[state.currentMonth];
@@ -4072,6 +4090,9 @@ function saveOneExpense(id){
   const d = document.getElementById('oneDate').value;
   if(/^\d{4}-\d{2}-\d{2}$/.test(d)) e.date = d;
   e.note = document.getElementById('oneNote').value.trim();
+  e.isAdvance = oneStatus === 'advance';
+  e.isCompanyAdvance = oneStatus === 'company';
+  if(e.isCompanyAdvance && !e.note) e.note = '公司垫付';
   saveDB(); closeSheet(); renderMoney(document.getElementById('content'));
   toast('已修改为 ¥'+fmtMoney(v));
 }
@@ -4262,6 +4283,8 @@ function openReclassOne(id, from){
   if(!ent) return;
   reclassTargetId = id;
   reclassReturn = from || 'manage';
+  // 回显当前状态
+  reclassStatus = ent.isCompanyAdvance ? 'company' : (ent.isAdvance ? 'advance' : 'normal');
   // 未归类时按名称智能预选一个大类（用户确认即可，可改）
   const guess = isClassified(ent) ? {gid:ent.group, sub:ent.sub||''} : suggestGroup(ent);
   const initG = guess.gid || '';
@@ -4271,7 +4294,7 @@ function openReclassOne(id, from){
     <div style="background:var(--bg);border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px;color:var(--label-2);">
       <div style="font-size:18px;font-weight:700;color:var(--label);">¥${fmtMoney(ent.amount)}</div>
       <div style="margin-top:4px;">${shortDate(ent.date || (state.currentMonth+'-01'))}${ent.note?' · '+ent.note:''}</div>
-      <div style="margin-top:4px;font-size:12px;color:var(--label-3);">当前：${expenseFullLabel(ent)}</div>
+      <div style="margin-top:4px;font-size:12px;color:var(--label-3);">当前：${expenseFullLabel(ent)} · ${ent.isCompanyAdvance?'🏢 公司垫付':ent.isAdvance?'⚠️ 超前消费':'🟢 正常消费'}</div>
     </div>
     ${(!isClassified(ent) && initG) ? `<div style="background:rgba(52,199,89,.12);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#1E7B34;font-weight:600;">💡 已按名称猜到「${groupName(initG)}」，确认即可，不对就改</div>` : ''}
     <div class="sheet-field">
@@ -4284,12 +4307,39 @@ function openReclassOne(id, from){
       ${motivePickerHTML(ent.motive||'', ent.motiveSub||'')}
       ${ent.motive ? `<div style="margin-top:6px;text-align:right;"><span style="font-size:11px;color:var(--red);" onclick="clearReclassMotive()">🚫 清除已有动机</span></div>` : ''}
     </div>
+    <div class="sheet-field" style="margin-top:12px;border-top:.5px solid var(--separator);padding-top:10px;">
+      <div class="sheet-label">③ 这笔钱的状态</div>
+      <div class="cat-select" id="rcStatusGroup">
+        <div class="cat-opt${reclassStatus==='normal'?' selected':''}" id="rcStatus_normal" onclick="pickReclassStatus('normal')">🟢 正常消费</div>
+        <div class="cat-opt${reclassStatus==='advance'?' selected':''}" id="rcStatus_advance" onclick="pickReclassStatus('advance')">⚠️ 超前消费</div>
+        <div class="cat-opt${reclassStatus==='company'?' selected':''}" id="rcStatus_company" onclick="pickReclassStatus('company')">🏢 公司垫付</div>
+      </div>
+      <div id="rcStatusHint" style="display:${reclassStatus==='company'?'block':'none'};margin-top:8px;padding:8px 10px;background:#EAF3FF;border-radius:8px;font-size:11px;color:#0B5FA5;line-height:1.5;">
+        公司垫付不计入个人消费、预算和超支警告；公司打款后点「＋ 添加额外收入」即可平账。
+      </div>
+      <div id="rcAdvanceHint" style="display:${reclassStatus==='advance'?'block':'none'};margin-top:8px;padding:8px 10px;background:#FFF3E0;border-radius:8px;font-size:11px;color:#795548;line-height:1.5;">
+        超前消费单独统计，不计入个人消费分类，但会从月结收入中扣除。
+      </div>
+    </div>
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
       <button class="sheet-btn sheet-btn-primary" onclick="saveReclassOne()">保存</button>
     </div>
-    <div style="font-size:11px;color:var(--label-3);text-align:center;margin-top:8px;">只改归类 / 子分类 / 动机，金额 / 日期 / 备注都不动</div>
+    <div style="font-size:11px;color:var(--label-3);text-align:center;margin-top:8px;">只改归类 / 子分类 / 动机 / 状态，金额 / 日期 / 备注都不动</div>
   `);
+}
+// 切换这笔钱的状态：正常 / 超前 / 公司垫付（三选一）
+function pickReclassStatus(s){
+  haptic();
+  reclassStatus = s;
+  ['normal','advance','company'].forEach(k=>{
+    const el = document.getElementById('rcStatus_'+k);
+    if(el) el.classList.toggle('selected', k===s);
+  });
+  const ch = document.getElementById('rcStatusHint');
+  if(ch) ch.style.display = s==='company' ? 'block' : 'none';
+  const ah = document.getElementById('rcAdvanceHint');
+  if(ah) ah.style.display = s==='advance' ? 'block' : 'none';
 }
 // 清除该条记录的动机（在重新归类面板里操作）
 function clearReclassMotive(){
@@ -4306,6 +4356,7 @@ function clearReclassMotive(){
 }
 let reclassTargetId = null;
 let reclassReturn = 'manage';
+let reclassStatus = 'normal';   // 'normal' | 'advance' | 'company'
 function saveReclassOne(){
   const m = DB.finance[state.currentMonth];
   if(!m || !reclassTargetId) return;
@@ -4317,6 +4368,10 @@ function saveReclassOne(){
   const nm = groupName(pickerState.group);
   ent.cat = nm;
   if(pickerState.sub) ent.sub = pickerState.sub; else delete ent.sub;
+  // 状态：正常 / 超前 / 公司垫付（三选一）
+  ent.isAdvance = reclassStatus === 'advance';
+  ent.isCompanyAdvance = reclassStatus === 'company';
+  if(ent.isCompanyAdvance && !ent.note) ent.note = '公司垫付';
   // 动机：选了就更新；没选保持原样
   if(pickerState.motive){
     ent.motive = pickerState.motive;
@@ -4325,14 +4380,22 @@ function saveReclassOne(){
   saveDB();
   const key = 'G:'+ent.group;
   const back = reclassReturn;
+  const isCompany = ent.isCompanyAdvance;
   reclassTargetId = null;
   renderMoney(document.getElementById('content'));
+  const statusTxt = isCompany ? ' · 🏢 公司垫付' : (ent.isAdvance ? ' · ⚠️ 超前消费' : '');
+  if(isCompany){
+    // 垫付不在普通分类面板里展示，直接关闭并提示
+    closeSheet();
+    toast('已改为公司垫付，不计入个人消费');
+    return;
+  }
   if(back === 'panel'){
     openReclassPanel();   // 继续整理下一笔
   } else {
     openExpenseCatManage(key);
   }
-  toast('已归类到 '+nm+(pickerState.motive?' · 动机已记':''));
+  toast('已归类到 '+nm+statusTxt+(pickerState.motive?' · 动机已记':''));
 }
 
 // ===== 批量整理：把所有旧（自由文本）分类逐条归类 =====
@@ -4760,7 +4823,7 @@ function editExpenseItem(key){
             </label>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0;margin-left:6px;">
-            <button class="cmp-pair-edit" style="width:34px;height:34px;font-size:15px;" onclick="openReclassOne('${e.id}')" title="改分类">🏷</button>
+            <button class="cmp-pair-edit" style="width:34px;height:34px;font-size:15px;" onclick="openReclassOne('${e.id}')" title="改分类 / 状态">🏷</button>
             <button class="cmp-pair-edit" onclick="delExpenseEntry('${e.id}')">🗑</button>
           </div>
         </div>
