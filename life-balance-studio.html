@@ -1040,24 +1040,13 @@ const DB = {
 // ===== 状态 =====
 // ===== 数据持久化(localStorage) =====
 const STORAGE_KEY = 'life_balance_studio_v1';
-const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.1.2'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.1.3'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
     const dataToSave = JSON.stringify(DB);
     localStorage.setItem(STORAGE_KEY, dataToSave);
-    // 自动备份:每次保存时存一份带时间戳的备份(最多保留3份)
-    try {
-      const ts = new Date().toISOString().slice(0,16).replace('T',' ');
-      const backupEntry = { ts, data: dataToSave };
-      let backups = [];
-      try { backups = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]'); } catch(e2){}
-      backups.unshift(backupEntry);
-      if(backups.length > 3) backups = backups.slice(0,3);
-      localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
-    } catch(e2){ /* 备份失败不影响主流程 */ }
     localStorage.setItem('life_balance_db_version', DB_VERSION);
   } catch(e) {
     // localStorage 满了(可能 base64 太大),尝试不含 health.data 存
@@ -1208,87 +1197,6 @@ function importData(input){
     }
   };
   reader.readAsText(file);
-}
-
-function restoreBackup(idx){
-  haptic();
-  try {
-    const backups = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]');
-    if(!backups[idx]){ toast('找不到备份'); return; }
-    if(!confirm('恢复将覆盖当前数据为 ' + backups[idx].ts + ' 的备份，确定？')) return;
-    const restored = JSON.parse(backups[idx].data);
-    Object.keys(restored).forEach(key=>{
-      if(key === 'study'){
-        Object.keys(restored.study).forEach(sk=>{ DB.study[sk] = restored.study[sk]; });
-      } else if(key === 'finance'){
-        Object.keys(restored.finance||{}).forEach(mk=>{ DB.finance[mk] = restored.finance[mk]; });
-      } else {
-        DB[key] = restored[key];
-      }
-    });
-    saveDB();
-    closeSheet();
-    switchModule('home');
-    toast('已恢复到 ' + backups[idx].ts);
-  } catch(e){
-    toast('恢复失败：' + e.message);
-  }
-}
-
-function openDataManager(){
-  haptic();
-  let backups = [];
-  try { backups = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]'); } catch(e){}
-  const dataSize = JSON.stringify(DB).length;
-  const sizeKB = (dataSize/1024).toFixed(1);
-
-  openSheet(`
-    <div class="sheet-title">数据管理</div>
-
-    <div style="background:#FFF8E1;border-radius:10px;padding:12px;margin-bottom:12px;">
-      <div style="font-size:13px;color:#F57C00;line-height:1.6;">
-        ⚠️ <b>重要提示</b><br>
-        数据保存在当前网站的浏览器中。如果网址变更或清除浏览器缓存，数据会丢失。请定期使用「导出备份」保存到手机文件中。
-      </div>
-    </div>
-
-    <div style="font-size:13px;color:var(--label-3);margin-bottom:8px;">
-      当前数据大小: ${sizeKB} KB · 存储位置: 本地浏览器
-    </div>
-
-    <div class="sheet-field">
-      <div class="sheet-label">📤 导出备份</div>
-      <button class="sheet-btn sheet-btn-primary" style="width:100%;margin-bottom:6px;" onclick="exportData()">导出为 JSON 文件</button>
-      <div style="font-size:12px;color:var(--label-3);">下载备份文件，保存到手机「文件」App 中</div>
-    </div>
-
-    <div class="sheet-field">
-      <div class="sheet-label">📥 导入恢复</div>
-      <input type="file" accept=".json" style="display:none;" id="importFileInput" onchange="importData(this)">
-      <button class="sheet-btn sheet-btn-secondary" style="width:100%;margin-bottom:6px;" onclick="document.getElementById('importFileInput').click()">从 JSON 文件导入</button>
-      <div style="font-size:12px;color:var(--label-3);">选择之前导出的备份文件恢复数据</div>
-    </div>
-
-    ${backups.length > 0 ? `
-      <div class="sheet-field">
-        <div class="sheet-label">🕓 自动备份 (${backups.length})</div>
-        <div style="font-size:12px;color:var(--label-3);margin-bottom:8px;">每次操作自动保存，最多保留3份</div>
-        ${backups.map((b,i)=>`
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--bg);border-radius:8px;margin-bottom:6px;">
-            <div>
-              <div style="font-size:13px;font-weight:500;">${b.ts}</div>
-              <div style="font-size:11px;color:var(--label-3);">${(b.data.length/1024).toFixed(1)} KB</div>
-            </div>
-            <button class="cmp-pair-edit" style="height:30px;padding:0 12px;font-size:13px;" onclick="restoreBackup(${i})">恢复</button>
-          </div>
-        `).join('')}
-      </div>
-    ` : ''}
-
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">关闭</button>
-    </div>
-  `);
 }
 
 function loadDB(){
@@ -1874,7 +1782,6 @@ function renderHome(c){
       <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importData(this)">
       <div class="dm-foot">
         <span>${lastExportLabel()}</span>
-        <span class="dm-link" onclick="openDataManager()">历史备份 ›</span>
       </div>
     </div>
   `;
@@ -7318,6 +7225,8 @@ function manualCheckUpdate(){
 // ===== 初始化 =====
 // 加载本地存储数据
 loadDB();
+// 一次性清理：v3.1.3 起移除自动备份机制，删掉历史遗留的快照数据（约 25KB×3）
+try { localStorage.removeItem('life_balance_studio_backup'); } catch(e){}
 // 初始化
 switchModule('home');
 // 版本自检测 / 自刷新（异步，不阻塞渲染）
