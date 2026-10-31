@@ -811,6 +811,48 @@ input,textarea{font-family:inherit;}
 .multi-date-item{
   transition:background .15s;
 }
+
+/* ===== 情报管理 · 极简三按钮 ===== */
+.dm-card{
+  background:var(--card);border-radius:18px;
+  padding:16px 14px 12px;margin-bottom:10px;
+  box-shadow:var(--shadow-card);
+}
+.dm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.dm-title{font-size:15px;font-weight:600;letter-spacing:.2px;}
+.dm-badge{
+  font-size:11px;color:var(--label-3);
+  background:rgba(120,120,128,.10);
+  padding:2px 8px;border-radius:8px;
+  font-variant-numeric:tabular-nums;
+}
+.dm-tip{font-size:11px;color:var(--label-3);line-height:1.55;margin-bottom:14px;}
+.dm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.dm-btn{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
+  padding:16px 4px;border-radius:14px;
+  background:rgba(120,120,128,.07);
+  border:.5px solid rgba(120,120,128,.18);
+  color:var(--label);
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .12s ease,background .15s ease,border-color .15s ease;
+}
+.dm-btn:active{
+  background:rgba(0,122,255,.13);
+  border-color:rgba(0,122,255,.32);
+  transform:scale(.96);
+}
+.dm-ico{font-size:22px;line-height:1;display:block;}
+.dm-label{font-size:12px;font-weight:500;letter-spacing:.2px;white-space:nowrap;display:block;}
+.dm-foot{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-top:12px;font-size:11px;color:var(--label-3);
+}
+.dm-link{color:var(--blue);}
+@media (max-width:330px){
+  .dm-grid{grid-template-columns:1fr 1fr;}
+  .dm-btn:nth-child(3){grid-column:1 / -1;flex-direction:row;gap:8px;padding:14px 4px;}
+}
 </style>
 </head>
 <body>
@@ -862,9 +904,6 @@ input,textarea{font-family:inherit;}
         <svg width="22" height="22" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
       <div class="topbar-title" id="topbarTitle">今日战况</div>
-      <button class="topbar-btn" id="settingsBtn" aria-label="设置">
-        <svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-      </button>
     </header>
 
     <!-- 内容区 -->
@@ -1003,7 +1042,7 @@ const DB = {
 const STORAGE_KEY = 'life_balance_studio_v1';
 const BACKUP_KEY = 'life_balance_studio_backup';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.1.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.1.2'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -1033,11 +1072,21 @@ function saveDB(){
       console.error('保存失败:', e2);
     }
   }
-  // 自动云同步（静默，5秒后执行）
-  autoCloudSync();
 }
 
 // ===== 数据导出/导入 =====
+function markExported(){
+  try { localStorage.setItem('lb_last_export', todayStr()); } catch(e){}
+}
+function lastExportLabel(){
+  let d = '';
+  try { d = localStorage.getItem('lb_last_export') || ''; } catch(e){}
+  if(!d) return '还没有导出过备份';
+  const days = Math.round((new Date(todayStr()) - new Date(d)) / 86400000);
+  if(days <= 0) return '今天已导出备份';
+  if(days === 1) return '昨天导出过备份';
+  return days + ' 天前导出过备份';
+}
 function exportData(){
   haptic();
   const data = JSON.stringify(DB, null, 2);
@@ -1050,219 +1099,15 @@ function exportData(){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  markExported();
   toast('数据已导出，请保存到文件');
 }
 
-// ===== Supabase 云同步 =====
-const SUPABASE_URL = 'https://vdjphermsisxenpsdxgm.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkanBoZXJtc2lzeGVucHNkeGdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1MTQzNzcsImV4cCI6MjEwMjA5MDM3N30.L2hNZ1_BAAMgqiLSEM3d7gqzULU0maiD95V5Q_xz0G0';
-
-function getDeviceId(){
-  // 优先使用用户设置的同步码
-  let id = localStorage.getItem('lb_sync_code') || localStorage.getItem('lb_device_id');
-  if(!id){
-    id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2,10);
-    localStorage.setItem('lb_device_id', id);
-  }
-  return id;
-}
-
-function getSyncCode(){
-  return localStorage.getItem('lb_sync_code') || '';
-}
-
-function setSyncCode(code){
-  localStorage.setItem('lb_sync_code', code);
-  // 同步码变了，重置云端版本号，下次上传会用新 ID
-  localStorage.setItem('lb_cloud_version', '0');
-}
-
-function openSyncCodeSetting(){
+// 首页「检查更新」按钮
+function checkUpdateTap(){
   haptic();
-  const current = getSyncCode();
-  openSheet(`
-    <div class="sheet-title">🔐 同步码设置</div>
-    <div style="font-size:13px;color:var(--label-3);line-height:1.6;margin-bottom:12px;">
-      同步码是你跨设备恢复数据的钥匙。<br>
-      设置后，云端数据会用这个同步码标记。<br>
-      换手机时输入相同的同步码即可拉取数据。
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">当前同步码</div>
-      <div style="font-size:16px;font-weight:600;color:${current?'var(--green)':'var(--label-3)'};">${current||'未设置（使用随机设备ID）'}</div>
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">设置新同步码</div>
-      <input class="sheet-input" id="syncCodeInput" placeholder="如: yukio2026" value="${current}">
-      <div style="font-size:12px;color:var(--label-3);margin-top:4px;">建议用英文字母+数字，好记的</div>
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveSyncCode()">保存</button>
-    </div>
-  `);
-}
-
-function saveSyncCode(){
-  const code = document.getElementById('syncCodeInput').value.trim();
-  if(!code){ toast('请输入同步码'); return; }
-  haptic();
-  setSyncCode(code);
-  closeSheet();
-  renderHome(document.getElementById('content'));
-  toast('同步码已设置: ' + code);
-  // 立即上传一次
-  setTimeout(()=> cloudSync(true), 500);
-}
-
-function openRestoreByCode(){
-  haptic();
-  openSheet(`
-    <div class="sheet-title">🔄 换设备恢复</div>
-    <div style="font-size:13px;color:var(--label-3);line-height:1.6;margin-bottom:12px;">
-      输入你之前设置的同步码，<br>从云端拉取数据到这台设备。
-    </div>
-    <div class="sheet-field">
-      <div class="sheet-label">同步码</div>
-      <input class="sheet-input" id="restoreCodeInput" placeholder="如: yukio2026">
-    </div>
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="restoreByCode()">恢复</button>
-    </div>
-  `);
-}
-
-async function restoreByCode(){
-  const code = document.getElementById('restoreCodeInput').value.trim();
-  if(!code){ toast('请输入同步码'); return; }
-  haptic();
-  toast('☁️ 正在拉取...');
-  try {
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${code}&order=version.desc&limit=1`, {
-      method: 'GET',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
-    });
-    const result = await resp.json();
-    if(!result || result.length === 0){
-      toast('该同步码下无云端数据');
-      return;
-    }
-    const record = result[0];
-    const cloudData = typeof record.data === 'string' ? JSON.parse(record.data) : record.data;
-    if(!confirm(`找到云端数据 v${record.version}（${new Date(record.updated_at).toLocaleString('zh-CN')}）\n确定覆盖本地？`)) return;
-    Object.keys(cloudData).forEach(key=>{ DB[key] = cloudData[key]; });
-    saveDB();
-    setSyncCode(code);
-    setCloudVersion(record.version);
-    closeSheet();
-    switchModule('home');
-    toast('☁️ 恢复成功！');
-  } catch(e){
-    toast('恢复失败: ' + e.message);
-  }
-}
-
-function getCloudVersion(){
-  return parseInt(localStorage.getItem('lb_cloud_version') || '0');
-}
-
-function setCloudVersion(v){
-  localStorage.setItem('lb_cloud_version', String(v));
-}
-
-function updateSyncStatus(text){
-  const el = document.getElementById('syncStatus');
-  if(el) el.textContent = text;
-}
-
-let autoSyncTimer = null;
-function autoCloudSync(){
-  if(autoSyncTimer) clearTimeout(autoSyncTimer);
-  autoSyncTimer = setTimeout(()=>{ cloudSync(false); }, 5000);
-}
-
-async function cloudSync(showToast){
-  try {
-    if(showToast){ toast('☁️ 正在上传...'); haptic(); }
-    const deviceId = getDeviceId();
-    const version = getCloudVersion() + 1;
-    const data = JSON.stringify(DB);
-    
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}`, {
-      method: 'GET',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
-    });
-    const existing = await resp.json();
-    
-    if(existing && existing.length > 0){
-      const resp2 = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}`, {
-        method: 'PATCH',
-        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-        body: JSON.stringify({ data, version, updated_at: new Date().toISOString() })
-      });
-      if(!resp2.ok) throw new Error('上传失败');
-    } else {
-      const resp2 = await fetch(`${SUPABASE_URL}/rest/v1/user_data`, {
-        method: 'POST',
-        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-        body: JSON.stringify({ device_id: deviceId, data, version, updated_at: new Date().toISOString() })
-      });
-      if(!resp2.ok) throw new Error('上传失败');
-    }
-    
-    setCloudVersion(version);
-    const timeStr = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-    updateSyncStatus('☁️ 已同步 '+timeStr);
-    if(showToast) toast('☁️ 云端上传成功');
-  } catch(e){
-    updateSyncStatus('☁️ 同步失败');
-    if(showToast) toast('云同步失败: ' + e.message);
-  }
-}
-
-async function cloudPull(){
-  try {
-    toast('☁️ 正在拉取...'); haptic();
-    const deviceId = getDeviceId();
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}&order=version.desc&limit=1`, {
-      method: 'GET',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
-    });
-    const result = await resp.json();
-    if(!result || result.length === 0){ toast('云端暂无数据'); return; }
-    
-    const record = result[0];
-    const cloudData = typeof record.data === 'string' ? JSON.parse(record.data) : record.data;
-    
-    if(!confirm(`云端版本 v${record.version}（${new Date(record.updated_at).toLocaleString('zh-CN')}）\n确定用云端数据覆盖本地？`)) return;
-    
-    Object.keys(cloudData).forEach(key=>{ DB[key] = cloudData[key]; });
-    saveDB();
-    setCloudVersion(record.version);
-    const timeStr = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-    updateSyncStatus('☁️ 已拉取 '+timeStr);
-    closeSheet();
-    switchModule('home');
-    toast('☁️ 云端拉取成功');
-  } catch(e){
-    toast('云端拉取失败: ' + e.message);
-  }
-}
-
-async function cloudCheckOnLoad(){
-  try {
-    const deviceId = getDeviceId();
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/user_data?device_id=eq.${deviceId}&select=version,updated_at&order=version.desc&limit=1`, {
-      method: 'GET',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
-    });
-    const result = await resp.json();
-    if(result && result.length > 0){
-      const timeStr = new Date(result[0].updated_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-      updateSyncStatus('☁️ v'+result[0].version+' '+timeStr);
-    }
-  } catch(e){}
+  toast('🔄 正在检查更新…');
+  manualCheckUpdate();
 }
 
 function importData(input){
@@ -2006,24 +1851,31 @@ function renderHome(c){
     </div>
 
     <!-- 数据管理 -->
-    <div class="card" style="padding:12px;margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div style="font-size:15px;font-weight:600;">💾 情报管理</div>
-        <span id="syncStatus" style="font-size:11px;color:var(--label-3);"></span>
+    <div class="dm-card">
+      <div class="dm-head">
+        <span class="dm-title">💾 情报管理</span>
+        <span class="dm-badge">v${APP_VERSION}</span>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;" onclick="exportData()">📤 情报转服</button>
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;" onclick="document.getElementById('importFileInput').click()">📥 情报录入</button>
+      <div class="dm-tip">数据只存在这台设备的浏览器里，换手机或清缓存前，先导出一份放着。</div>
+      <div class="dm-grid">
+        <button class="dm-btn" onclick="exportData()">
+          <span class="dm-ico">📤</span>
+          <span class="dm-label">导出数据</span>
+        </button>
+        <button class="dm-btn" onclick="document.getElementById('importFileInput').click()">
+          <span class="dm-ico">📥</span>
+          <span class="dm-label">导入数据</span>
+        </button>
+        <button class="dm-btn" onclick="checkUpdateTap()">
+          <span class="dm-ico">🔄</span>
+          <span class="dm-label">检查更新</span>
+        </button>
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;background:#E8F5E9;color:var(--green);" onclick="cloudSync(true)">☁️ 云端上传</button>
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;background:#E3F2FD;color:var(--blue);" onclick="cloudPull()">☁️ 云端拉取</button>
+      <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importData(this)">
+      <div class="dm-foot">
+        <span>${lastExportLabel()}</span>
+        <span class="dm-link" onclick="openDataManager()">历史备份 ›</span>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:12px;" onclick="openSyncCodeSetting()">🔐 同步码: ${getSyncCode()||'未设置'}</button>
-        <button class="sheet-btn sheet-btn-secondary" style="flex:1;font-size:12px;background:#FFF3E0;color:var(--orange);" onclick="openRestoreByCode()">🔄 换设备恢复</button>
-      </div>
-      <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
     </div>
   `;
 }
@@ -7375,67 +7227,6 @@ document.getElementById('fabCheckin').onclick=()=>{
   updateFabCheckinBtn();
 };
 
-// ===== 设置 =====
-document.getElementById('settingsBtn').onclick=()=>{
-  haptic();
-  const sp = DB.savingsPlan;
-  openSheet(`
-    <div class="sheet-title">⚙️ 设置</div>
-    <div class="sheet-field">
-      <div class="sheet-label" style="font-weight:600;font-size:15px;color:var(--label);">💰 存钱计划</div>
-      <div style="margin-top:8px;">
-        <div class="sheet-label">目标金额（元）</div>
-        <input class="sheet-input" id="setPlanTarget" type="number" min="0" value="${sp.target||100000}">
-      </div>
-      <div style="margin-top:8px;">
-        <div class="sheet-label">开始日期</div>
-        <input class="sheet-input" id="setPlanStart" type="date" value="${sp.startDate||'2026-07-01'}">
-      </div>
-      <div style="margin-top:8px;">
-        <div class="sheet-label">结束日期</div>
-        <input class="sheet-input" id="setPlanEnd" type="date" value="${sp.endDate||'2028-07-01'}">
-      </div>
-      <div style="font-size:12px;color:var(--label-3);margin-top:6px;">存钱计划的成功/失败由你手动判断，可在首页查看进度</div>
-    </div>
-
-    <div class="sheet-field" style="border-top:1px solid var(--bg);padding-top:12px;">
-      <div class="sheet-label" style="font-weight:600;font-size:15px;color:var(--label);">💾 数据管理</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-        <button class="sheet-btn sheet-btn-secondary" style="width:100%;background:var(--bg);color:var(--blue);" onclick="exportData()">📤 导出数据备份</button>
-        <button class="sheet-btn sheet-btn-secondary" style="width:100%;background:var(--bg);color:var(--blue);" onclick="document.getElementById('importFileInput').click()">📥 导入数据恢复</button>
-        <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
-        <button class="sheet-btn sheet-btn-secondary" style="width:100%;background:var(--bg);color:var(--blue);" onclick="openDataManager()">🗂️ 本地备份管理</button>
-      </div>
-    </div>
-
-    <div class="sheet-field" style="border-top:1px solid var(--bg);padding-top:12px;">
-      <div class="sheet-label" style="font-weight:600;font-size:15px;color:var(--label);">🔄 版本与更新</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-        <span style="font-size:13px;color:var(--label-3);flex:1;">当前版本 v${APP_VERSION}</span>
-        <button class="sheet-btn sheet-btn-secondary" style="background:var(--bg);color:var(--blue);" onclick="closeSheet();manualCheckUpdate();">检查更新</button>
-      </div>
-      <div style="font-size:12px;color:var(--label-3);margin-top:6px;">有新版本时会自动弹出更新提示并自动刷新，无需手动操作</div>
-    </div>
-
-    <div class="sheet-actions">
-      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
-      <button class="sheet-btn sheet-btn-primary" onclick="saveSettings()">保存</button>
-    </div>
-  `);
-};
-
-function saveSettings(){
-  haptic();
-  DB.savingsPlan.target = Math.max(0, parseFloat(document.getElementById('setPlanTarget').value)||0);
-  DB.savingsPlan.startDate = document.getElementById('setPlanStart').value;
-  DB.savingsPlan.endDate = document.getElementById('setPlanEnd').value;
-  closeSheet();
-  emitSaved();
-  saveDB();
-  if(state.currentModule==='home') renderHome(document.getElementById('content'));
-  toast('设置已保存');
-}
-
 // ===== 内容滚动监听 =====
 document.getElementById('content').addEventListener('scroll',function(){
   document.getElementById('topbar').classList.toggle('scrolled', this.scrollTop>2);
@@ -7538,8 +7329,6 @@ var checkBtn = document.getElementById('checkUpdateBtn');
 if(checkBtn) checkBtn.onclick = () => { haptic(); manualCheckUpdate(); };
 // 移除启动骨架屏
 var bootEl=document.getElementById('bootScreen'); if(bootEl) bootEl.remove();
-// 延迟检查云端同步状态（不阻塞页面渲染）
-setTimeout(()=>cloudCheckOnLoad(), 2000);
 </script>
 </body>
 </html>
