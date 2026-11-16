@@ -990,6 +990,10 @@ const DB = {
   // 消费动机（全局共享）
   motives: JSON.parse(JSON.stringify(DEFAULT_MOTIVES)),
 
+  // 分期还款计划（全局，跨月）
+  // 每项：{id,name,cat,group,principal,periods,interest,startMonth,paidPeriods,status,createdAt}
+  installments: [],
+
   // 财务数据 - 按月存储 (起始月2026-07)
   finance:{
     '2026-07':{
@@ -1041,7 +1045,7 @@ const DB = {
 // ===== 数据持久化(localStorage) =====
 const STORAGE_KEY = 'life_balance_studio_v1';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.1.3'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.2.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -1402,9 +1406,83 @@ function catKeyIsLegacy(key){ return !key || key.indexOf('G:')!==0; }
 function getBonusTotal(m){
   return (m && m.bonuses || []).reduce((s,b)=>s+((b.amount||0)),0);
 }
+// ===== 分期还款（installments）=====
+// 设计：DB.installments 里只存一条「计划」，每月应还额由这里实时推导，不写入 expenses。
+// 好处：改期数/利息/已还期数会立刻反映到所有月份，不会留下重复账单，也不会有重复扣款。
+function monthAdd(mk, n){
+  const p = String(mk||'').split('-');
+  if(p.length!==2) return mk;
+  const t = (+p[0])*12 + (+p[1]-1) + n;
+  return String(Math.floor(t/12)) + '-' + String((t%12+1)).padStart(2,'0');
+}
+function monthDiff(a, b){   // b - a（单位：月）
+  const pa = String(a||'').split('-'), pb = String(b||'').split('-');
+  if(pa.length!==2||pb.length!==2) return 0;
+  return ((+pb[0])*12 + +pb[1]) - ((+pa[0])*12 + +pa[1]);
+}
+function instFirstDueMonth(inst){
+  return monthAdd(inst.startMonth || state.currentMonth, inst.paidPeriods||0);
+}
+// 第 idx 期（0-based，总期数口径）应还的本金。最后一期吸收除不尽的尾差。
+function instPrincipalAt(inst, idx){
+  const periods = Math.max(1, inst.periods||1);
+  const principal = Math.max(0, inst.principal||0);
+  const base = Math.floor(principal / periods * 100) / 100;
+  if(idx === periods-1) return Math.round((principal - base*(periods-1))*100)/100;
+  return base;
+}
+// 某个月的应还。返回 null 表示这个月不用还。
+function instDueInMonth(inst, monthKey){
+  if(!inst || inst.status !== 'active') return null;
+  const periods = Math.max(1, inst.periods||1);
+  const paid = Math.min(periods, Math.max(0, inst.paidPeriods||0));
+  const remain = periods - paid;
+  if(remain <= 0) return null;
+  const idx = monthDiff(instFirstDueMonth(inst), monthKey);  // 剩余期中的序号
+  if(idx < 0 || idx >= remain) return null;
+  const totalIdx = paid + idx;                               // 总期号（0-based）
+  const principalPart = instPrincipalAt(inst, totalIdx);
+  const interest = Math.max(0, inst.interest||0);
+  return {
+    idx, period: totalIdx+1, periods,
+    principalPart, interest,
+    amount: Math.round((principalPart + interest)*100)/100
+  };
+}
+// 从 monthKey（含）起还剩多少
+function instRemainingFrom(inst, monthKey){
+  const periods = Math.max(1, inst.periods||1);
+  const paid = Math.min(periods, Math.max(0, inst.paidPeriods||0));
+  const remain = periods - paid;
+  const first = instFirstDueMonth(inst);
+  let start = monthDiff(first, monthKey);
+  start = Math.max(0, Math.min(remain, start));
+  let principalLeft = 0;
+  for(let i=start;i<remain;i++) principalLeft += instPrincipalAt(inst, paid+i);
+  principalLeft = Math.round(principalLeft*100)/100;
+  const periodsLeft = remain - start;
+  const interestPer = Math.max(0, inst.interest||0);
+  return { principalLeft, interestLeft: Math.round(periodsLeft*interestPer*100)/100, periodsLeft, startIdx:start };
+}
+// 某月的分期还款明细（含当月结清一次性扣款）
+function installmentsForMonth(monthKey){
+  const items = [];
+  (DB.installments||[]).forEach(inst=>{
+    const d = instDueInMonth(inst, monthKey);
+    if(d){ items.push(Object.assign({inst, settled:false}, d)); return; }
+    if(inst.status==='cleared' && inst.clearedMonth===monthKey && inst.clearedAmount>0){
+      items.push({inst, settled:true, amount:inst.clearedAmount, principalPart:inst.clearedAmount, interest:0, period:inst.periods, periods:inst.periods});
+    }
+  });
+  return items;
+}
+function installmentsTotalForMonth(monthKey){
+  return installmentsForMonth(monthKey).reduce((s,x)=>s+(x.amount||0),0);
+}
+
 function calcMonthFinance(monthKey){
-  const m = DB.finance[monthKey];
-  if(!m) return {expenseTotal:0,normalExpense:0,balance:0,catSummary:{},subSummary:{},motiveSummary:{},motiveTotal:0,advanceCats:{},advanceTotal:0,advanceCount:0,companyAdvanceCats:{},companyAdvanceTotal:0,companyAdvanceCount:0,goldPlanned:0,goldActual:0,goldOverride:null,plan:{},catMeta:{},budget:0};
+  // 即使该月还没有任何记录，也可能有分期到期，所以构造一个空壳继续算
+  const m = DB.finance[monthKey] || {expenses:[], plan:{}, catMeta:{}, budget:0, incomePlanned:0, incomeActual:0, bonuses:[], goldOverride:null};
   const catSummary = {};      // 大类（旧数据为自由文本）→ 金额
   const subSummary = {};      // 大类·子分类 → 金额
   const motiveSummary = {};   // 消费动机 → 金额
@@ -1445,6 +1523,14 @@ function calcMonthFinance(monthKey){
     }
   });
   const expenseTotal = normalExpense;
+  // ===== 分期还款：实时推导本月应还，不写进 expenses =====
+  const installmentItems = installmentsForMonth(monthKey);
+  let installmentTotal = 0, installmentCount = 0;
+  installmentItems.forEach(it=>{ installmentTotal += (it.amount||0); installmentCount++; });
+  installmentTotal = Math.round(installmentTotal*100)/100;
+  // 「超前消费」总口径 = 手录的超前消费 + 本月分期应还（两者都从收入扣，且都不进个人消费流水）
+  advanceTotal = Math.round((advanceTotal + installmentTotal)*100)/100;
+  advanceCount += installmentCount;
   // 额外收入（奖金/外快）：计入实际收入
   const bonusTotal = getBonusTotal(m);
   // 月结金币 = (工资 + 额外收入) - 超前消费 - 普通消费 - 公司垫付
@@ -1459,6 +1545,7 @@ function calcMonthFinance(monthKey){
     incomePlanned:m.incomePlanned, incomeActual:m.incomeActual,
     bonusTotal, incomeWithBonus:(m.incomeActual||0)+bonusTotal,
     advanceTotal, advanceCount, advanceCats,
+    installmentItems, installmentTotal, installmentCount,
     companyAdvanceTotal, companyAdvanceCount, companyAdvanceCats,
     plan:m.plan, catMeta:m.catMeta||{},
     budget:m.budget||0,
@@ -1839,8 +1926,10 @@ function analyzeYearFinance(year){
 
   for(let m=1;m<=12;m++){
     const mk = yStr + '-' + String(m).padStart(2,'0');
-    const fin = DB.finance[mk];
-    if(!fin) continue;
+    let fin = DB.finance[mk];
+    const instItems = installmentsForMonth(mk);
+    if(!fin && !instItems.length) continue;
+    if(!fin) fin = {expenses:[], plan:{}, catMeta:{}, budget:0, incomePlanned:0, incomeActual:0, bonuses:[], goldOverride:null};
     const monthCats = {};
     let monthAdvance = 0, monthAdvanceCount = 0, monthCompanyAdvance = 0;
     (fin.expenses||[]).forEach(e=>{
@@ -1870,6 +1959,8 @@ function analyzeYearFinance(year){
       motiveSubTotals[mn][subName] = (motiveSubTotals[mn][subName]||0) + e.amount;
       if(e.isAdvance) motiveAdvTotals[mn] = (motiveAdvTotals[mn]||0) + e.amount;
     });
+    // 分期还款：本月应还计入超前消费（不进个人消费流水）
+    instItems.forEach(it=>{ monthAdvance += (it.amount||0); monthAdvanceCount++; });
     totalAdvance += monthAdvance;
     advanceCount += monthAdvanceCount;
     totalCompanyAdvance += monthCompanyAdvance;
@@ -1951,7 +2042,18 @@ function analyzeYearFinance(year){
 // 口径：全库扫描所有超前消费记录，取日期晚于该年最后一天的部分（跨年分期的未来期数）
 function calcDebtCarryOver(year){
   const cutoff = String(year) + '-12-31';
+  const nextJan = String(year+1) + '-01';
   let sum = 0, count = 0;
+  // 新模型：分期台账在年末之后还剩多少（本金 + 利息）
+  (DB.installments||[]).forEach(inst=>{
+    if(inst.status === 'cleared') return;
+    const rem = instRemainingFrom(inst, nextJan);
+    if(rem.periodsLeft > 0){
+      sum += rem.principalLeft + rem.interestLeft;
+      count++;
+    }
+  });
+  // 兼容旧数据：手录的超前消费（日期晚于年末）
   Object.keys(DB.finance||{}).forEach(mk=>{
     ((DB.finance[mk] && DB.finance[mk].expenses) || []).forEach(e=>{
       if(!e.isAdvance) return;
@@ -1959,7 +2061,7 @@ function calcDebtCarryOver(year){
       if(d > cutoff){ sum += (e.amount||0); count++; }
     });
   });
-  return {amount:sum, count:count};
+  return {amount:Math.round(sum*100)/100, count:count};
 }
 
 function analyzeYearStudy(year){
@@ -2851,8 +2953,10 @@ function archiveYear(year){
   let monthCount = 0;
   for(let m=1;m<=12;m++){
     const mk = yStr + '-' + String(m).padStart(2,'0');
-    const fin = DB.finance[mk];
-    if(!fin) continue;
+    let fin = DB.finance[mk];
+    const instItems = installmentsForMonth(mk);
+    if(!fin && !instItems.length) continue;
+    if(!fin) fin = {expenses:[], plan:{}, catMeta:{}, budget:0, incomePlanned:0, incomeActual:0, bonuses:[], goldOverride:null};
     monthCount++;
     let monthAdvance = 0, monthExpense = 0, monthCompanyAdvance = 0;
     (fin.expenses||[]).forEach(e=>{
@@ -2887,6 +2991,8 @@ function archiveYear(year){
         }
       }
     });
+    // 分期还款：本月应还计入超前消费
+    instItems.forEach(it=>{ monthAdvance += (it.amount||0); advanceTotal += (it.amount||0); });
     const monthBonus = getBonusTotal(fin);
     incomeTotal += (fin.incomeActual||0) + monthBonus;
     bonusTotal += monthBonus;
@@ -3527,7 +3633,8 @@ function getExpenseRows(fin, monthData){
   const normalCats = Object.keys(fin.catSummary).sort((a,b)=> (fin.catSummary[b]||0) - (fin.catSummary[a]||0));
   const advanceCats = Object.keys(fin.advanceCats||{}).sort((a,b)=> (fin.advanceCats[b]||0) - (fin.advanceCats[a]||0));
   const companyCats = Object.keys(fin.companyAdvanceCats||{}).sort((a,b)=> (fin.companyAdvanceCats[b]||0) - (fin.companyAdvanceCats[a]||0));
-  if(!normalCats.length && !advanceCats.length && !companyCats.length && !(monthData.expenses||[]).length) return '<div class="cmp-pair-empty">暂无消费记录，点「＋录入消费」添加</div>';
+  const instItems = fin.installmentItems || [];
+  if(!normalCats.length && !advanceCats.length && !companyCats.length && !instItems.length && !(monthData.expenses||[]).length) return '<div class="cmp-pair-empty">暂无消费记录，点「＋录入消费」添加</div>';
 
   let html = '';
 
@@ -3591,13 +3698,25 @@ function getExpenseRows(fin, monthData){
   }
 
   // 超前消费（单独区）
-  if(advanceCats.length){
+  if(advanceCats.length || instItems.length){
     const advTotal = fin.advanceTotal||0;
     html += `<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--separator);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
         <span style="font-size:13px;font-weight:600;color:#FF9500;">⚠️ 超前消费</span>
         <span style="font-size:13px;color:#FF9500;font-weight:600;">¥${fmtMoney(advTotal)}</span>
       </div>`;
+    // 分期还款（实时推导，不写进账单明细）
+    if(instItems.length){
+      html += instItems.map(it=>{
+        const inst = it.inst;
+        const label = it.settled ? `${escTask(inst.name)} · 提前结清` : `${escTask(inst.name)} · 第 ${it.period}/${it.periods} 期`;
+        return `<div onclick="openInstallmentDetail('${inst.id}')" style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:.5px dashed rgba(255,149,0,.28);cursor:pointer;">
+          <span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--label);">📅 ${label}</span>
+          <span style="font-size:13px;color:#FF9500;font-weight:600;flex-shrink:0;">¥${fmtMoney(it.amount)}</span>
+          <span style="font-size:12px;color:var(--label-3);flex-shrink:0;">›</span>
+        </div>`;
+      }).join('');
+    }
     html += advanceCats.map(key=>{
       const actual = fin.advanceCats[key] || 0;
       const safeKey = jsq(key);
@@ -4206,7 +4325,7 @@ function openAddExpenseItem(){
     </div>
     <div class="sheet-field">
       <div class="sheet-label">金额</div>
-      <input class="sheet-input" id="expItemAmount" type="number" inputmode="decimal" placeholder="0" oninput="checkMotiveRemind()">
+      <input class="sheet-input" id="expItemAmount" type="number" inputmode="decimal" placeholder="0" oninput="checkMotiveRemind();syncAdvPrincipalIfEmpty()">
     </div>
     <div class="sheet-field">
       <div class="sheet-label">日期</div>
@@ -4234,9 +4353,40 @@ function openAddExpenseItem(){
       <input type="checkbox" id="expItemAdvance" style="width:20px;height:20px;flex-shrink:0;" onchange="toggleAdvanceOptions()">
       <span style="color:var(--red);">标记为超前消费（从收入扣除）</span>
     </label>
-    <div id="advanceOptions" style="display:none;padding:10px;background:#FFF3E0;border-radius:10px;font-size:12px;color:#795548;line-height:1.5;">
-      勾选后，上方「金额」即作为本月这期的超前消费（分期/赊账）金额，例如本月餐饮分期还 ¥500 就填 500。<br>
-      它会自动从工资中扣除，不计入消费流水。
+    <div id="advanceOptions" style="display:none;margin-top:8px;padding:12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:12px;">
+      <div style="font-size:12px;color:#9A3412;font-weight:600;margin-bottom:10px;">📅 分期配置 · 每月只扣当期应还，本金不一次性计入本月</div>
+      <div class="sheet-field" style="margin-bottom:10px;">
+        <div class="sheet-label">本金（总金额）</div>
+        <input class="sheet-input" id="advPrincipal" type="number" inputmode="decimal" placeholder="0" oninput="updateInstPreview()">
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div class="sheet-field" style="flex:1;min-width:0;margin-bottom:10px;">
+          <div class="sheet-label">分期期数</div>
+          <input class="sheet-input" id="advPeriods" type="number" inputmode="numeric" min="1" value="1" oninput="updateInstPreview()">
+        </div>
+        <div class="sheet-field" style="flex:1;min-width:0;margin-bottom:10px;">
+          <div class="sheet-label">首期月份</div>
+          <select class="sheet-input" id="advStartMonth" style="padding:11px 10px;font-size:14px;" onchange="updateInstPreview()">
+            ${instMonthOptionsHTML(state.currentMonth)}
+          </select>
+        </div>
+      </div>
+      <div class="sheet-field" style="margin-bottom:10px;">
+        <div class="sheet-label">利息</div>
+        <div style="display:flex;gap:8px;">
+          <div class="cat-opt selected" id="advIntFree" onclick="setAdvInterestMode(0)" style="flex:1;">免息</div>
+          <div class="cat-opt" id="advIntPaid" onclick="setAdvInterestMode(1)" style="flex:1;">有息</div>
+        </div>
+      </div>
+      <div class="sheet-field" id="advInterestWrap" style="display:none;margin-bottom:10px;">
+        <div class="sheet-label">每期利息（元）</div>
+        <input class="sheet-input" id="advInterest" type="number" inputmode="decimal" placeholder="0" oninput="updateInstPreview()">
+      </div>
+      <div class="sheet-field" style="margin-bottom:8px;">
+        <div class="sheet-label">已还完前几期（这些期不生成账单）</div>
+        <input class="sheet-input" id="advPaid" type="number" inputmode="numeric" min="0" value="0" oninput="updateInstPreview()">
+      </div>
+      <div id="advPreview" style="font-size:12px;color:#9A3412;line-height:1.65;"></div>
     </div>
 
     <div style="height:1px;background:var(--separator);margin:10px 0;"></div>
@@ -4441,12 +4591,72 @@ function deleteCatGroup(gid){
 function toggleAdvanceOptions(){
   const checked = document.getElementById('expItemAdvance').checked;
   document.getElementById('advanceOptions').style.display = checked ? 'block' : 'none';
+  // 展开时把上方金额带入本金
+  if(checked){
+    const p = document.getElementById('advPrincipal');
+    const amt = parseFloat((document.getElementById('expItemAmount')||{}).value)||0;
+    if(p && !p.value && amt) p.value = amt;
+    updateInstPreview();
+  }
   // 超前消费与公司垫付互斥
   const comp = document.getElementById('expItemCompanyAdvance');
   if(checked && comp && comp.checked){
     comp.checked = false;
     toggleCompanyAdvance();
   }
+}
+
+// ===== 分期表单交互 =====
+function getAdvInterestMode(){
+  const paid = document.getElementById('advIntPaid');
+  return (paid && paid.classList.contains('selected')) ? 1 : 0;
+}
+function setAdvInterestMode(m){
+  const free = document.getElementById('advIntFree');
+  const paid = document.getElementById('advIntPaid');
+  if(free) free.classList.toggle('selected', m===0);
+  if(paid) paid.classList.toggle('selected', m===1);
+  const wrap = document.getElementById('advInterestWrap');
+  if(wrap) wrap.style.display = (m===1) ? 'block' : 'none';
+  updateInstPreview();
+}
+// 首期月份下拉：当前月前 6 个月 ~ 后 36 个月
+function instMonthOptionsHTML(selected){
+  const base = state.currentMonth || todayStr().slice(0,7);
+  let out = '';
+  for(let i=-6;i<=36;i++){
+    const mk = monthAdd(base, i);
+    const label = mk.slice(0,4) + '年' + parseInt(mk.slice(5,7),10) + '月';
+    out += `<option value="${mk}"${mk===selected?' selected':''}>${label}</option>`;
+  }
+  return out;
+}
+function syncAdvPrincipalIfEmpty(){
+  const p = document.getElementById('advPrincipal');
+  if(!p) return;
+  const amt = parseFloat((document.getElementById('expItemAmount')||{}).value)||0;
+  if(!p.value && amt) p.value = amt;
+  updateInstPreview();
+}
+function updateInstPreview(){
+  const el = document.getElementById('advPreview');
+  if(!el) return;
+  const amt = parseFloat((document.getElementById('expItemAmount')||{}).value)||0;
+  const principal = parseFloat((document.getElementById('advPrincipal')||{}).value) || amt;
+  const periods = Math.max(1, parseInt((document.getElementById('advPeriods')||{}).value)||1);
+  const interest = getAdvInterestMode()===1 ? Math.max(0, parseFloat((document.getElementById('advInterest')||{}).value)||0) : 0;
+  const paid = Math.max(0, Math.min(periods, parseInt((document.getElementById('advPaid')||{}).value)||0));
+  const startRaw = (document.getElementById('advStartMonth')||{}).value || state.currentMonth;
+  const start = /^\d{4}-\d{2}$/.test(startRaw) ? startRaw : state.currentMonth;
+  if(!(principal>0)){ el.innerHTML = '填完本金后这里会显示每期应还'; return; }
+  const base = Math.floor(principal/periods*100)/100;
+  const first = monthAdd(start, paid);
+  const remain = periods - paid;
+  const per = Math.round((base + interest)*100)/100;
+  const totalInt = Math.round(interest*periods*100)/100;
+  el.innerHTML = `每期应还 <b>¥${fmtMoney(per)}</b>（本金 ¥${fmtMoney(base)} ＋ 利息 ¥${fmtMoney(interest)}）<br>
+    共 ${periods} 期 · 还要还 ${remain} 期 · 总利息 ¥${fmtMoney(totalInt)}<br>
+    第一期待还：<b>${first}</b>${paid>0?`（前 ${paid} 期已还，不生成账单）`:''}`;
 }
 
 // 公司垫付：与超前消费互斥，勾选后剔除个人消费/预算口径
@@ -4485,6 +4695,36 @@ function confirmAddExpenseItem(){
   const dateInp = document.getElementById('expItemDate');
   const date = (dateInp && dateInp.value && /^\d{4}-\d{2}-\d{2}$/.test(dateInp.value)) ? dateInp.value : todayStr();
   haptic();
+  // ===== 分期：只写全局计划表，不进当月消费流水 =====
+  if(isAdvance){
+    const principal = Math.round((parseFloat((document.getElementById('advPrincipal')||{}).value) || amount)*100)/100;
+    if(!(principal>0)){ toast('本金需大于 0'); return; }
+    const periods = Math.max(1, parseInt((document.getElementById('advPeriods')||{}).value)||1);
+    const interest = getAdvInterestMode()===1 ? Math.max(0, parseFloat((document.getElementById('advInterest')||{}).value)||0) : 0;
+    const startRaw = (document.getElementById('advStartMonth')||{}).value || state.currentMonth;
+    const startMonth = /^\d{4}-\d{2}$/.test(startRaw) ? startRaw : state.currentMonth;
+    const paidPeriods = Math.max(0, Math.min(periods, parseInt((document.getElementById('advPaid')||{}).value)||0));
+    if(!Array.isArray(DB.installments)) DB.installments = [];
+    const inst = {
+      id: 'ins_' + Date.now().toString(36),
+      name: note || nm,
+      cat: nm, group: gid,
+      principal, periods, interest, startMonth, paidPeriods,
+      status: 'active',
+      createdAt: todayStr()
+    };
+    if(sub) inst.sub = sub;
+    DB.installments.push(inst);
+    state.lastExpGroup = gid;
+    saveDB();
+    closeSheet();
+    renderMoney(document.getElementById('content'));
+    emitSaved();
+    const per = Math.round((Math.floor(principal/periods*100)/100 + interest)*100)/100;
+    toast(`已建立分期：${periods} 期 · 每期 ¥${fmtMoney(per)} · 首期 ${monthAdd(startMonth, paidPeriods)}`);
+    return;
+  }
+
   const m = DB.finance[state.currentMonth];
   if(!m) return;
   if(!m.expenses) m.expenses = [];
@@ -4513,6 +4753,102 @@ function confirmAddExpenseItem(){
   } else {
     toast('已记入'+nm+tail+' ¥'+fmtMoney(amount));
   }
+}
+
+// ===== 分期详情 / 提前结清 =====
+function openInstallmentDetail(id){
+  haptic();
+  const inst = (DB.installments||[]).find(x=>x.id===id);
+  if(!inst){ toast('这笔分期不存在'); return; }
+  const monthKey = state.currentMonth;
+  const periods = Math.max(1, inst.periods||1);
+  const paid = Math.min(periods, Math.max(0, inst.paidPeriods||0));
+  const interest = Math.max(0, inst.interest||0);
+  const base = Math.floor((inst.principal||0)/periods*100)/100;
+  const per = Math.round((base + interest)*100)/100;
+  const rem = instRemainingFrom(inst, monthKey);
+  const doneAll = Math.min(periods, paid + rem.startIdx);
+  const cleared = inst.status === 'cleared';
+  const pct = Math.round(doneAll/periods*100);
+
+  openSheet(`
+    <div class="sheet-title">📅 分期详情</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:4px;">${escTask(inst.name)}</div>
+    <div style="font-size:12px;color:var(--label-3);margin-bottom:14px;">${escTask(inst.cat||'')}${inst.sub?(' · '+escTask(inst.sub)):''} · 首期 ${inst.startMonth}</div>
+
+    <div style="background:var(--bg);border-radius:12px;padding:12px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;">
+        <span style="color:var(--label-3);">本金 / 期数</span>
+        <span style="font-weight:600;">¥${fmtMoney(inst.principal||0)} · ${periods} 期</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;">
+        <span style="color:var(--label-3);">每期应还</span>
+        <span style="font-weight:600;color:#FF9500;">¥${fmtMoney(per)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;">
+        <span style="color:var(--label-3);">每期利息</span>
+        <span>${interest>0?('¥'+fmtMoney(interest)):'免息'}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;">
+        <span style="color:var(--label-3);">已还 / 总期数</span>
+        <span>${doneAll} / ${periods} 期</span>
+      </div>
+    </div>
+
+    <div style="height:6px;background:rgba(255,149,0,.15);border-radius:3px;overflow:hidden;margin-bottom:14px;">
+      <div style="height:100%;width:${pct}%;background:#FF9500;border-radius:3px;"></div>
+    </div>
+
+    ${cleared ? `
+      <div style="background:rgba(52,199,89,.12);border-radius:12px;padding:14px;text-align:center;font-size:14px;color:#248A3D;font-weight:600;margin-bottom:8px;">
+        ✅ 已于 ${inst.clearedMonth||'—'} 提前结清
+      </div>
+    ` : `
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <div style="flex:1;background:#FFF7ED;border-radius:12px;padding:12px;text-align:center;">
+          <div style="font-size:11px;color:#9A3412;">剩余本金</div>
+          <div style="font-size:17px;font-weight:700;color:#C2410C;margin-top:2px;">¥${fmtMoney(rem.principalLeft)}</div>
+        </div>
+        <div style="flex:1;background:#FFF7ED;border-radius:12px;padding:12px;text-align:center;">
+          <div style="font-size:11px;color:#9A3412;">剩余利息</div>
+          <div style="font-size:17px;font-weight:700;color:#C2410C;margin-top:2px;">¥${fmtMoney(rem.interestLeft)}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--label-3);line-height:1.6;margin-bottom:12px;">
+        还剩 ${rem.periodsLeft} 期，到 ${monthAdd(instFirstDueMonth(inst), rem.startIdx + rem.periodsLeft - 1)} 还完。<br>
+        提前结清只付剩余本金，剩余利息全部免除。
+      </div>
+      <button class="sheet-btn" style="width:100%;background:#FFF3E0;color:#C2410C;font-weight:700;margin-bottom:8px;"
+        onclick="settleInstallment('${inst.id}')">提前结清 · 付 ¥${fmtMoney(rem.principalLeft)}</button>
+    `}
+
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">关闭</button>
+    </div>
+  `);
+}
+
+function settleInstallment(id){
+  haptic();
+  const inst = (DB.installments||[]).find(x=>x.id===id);
+  if(!inst) return;
+  if(inst.status === 'cleared'){ toast('这笔已经结清了'); return; }
+  const monthKey = state.currentMonth;
+  const rem = instRemainingFrom(inst, monthKey);
+  if(rem.periodsLeft <= 0){ toast('已经还完了'); return; }
+  if(rem.principalLeft <= 0){ toast('没有剩余本金'); return; }
+  if(!confirm(`提前结清「${inst.name}」？\n\n需一次性还本金 ¥${fmtMoney(rem.principalLeft)}\n剩余利息 ¥${fmtMoney(rem.interestLeft)} 全部免除\n\n确认后会在 ${monthKey} 一次性扣除，之后不再出现这笔分期。`)){
+    return;
+  }
+  inst.status = 'cleared';
+  inst.clearedMonth = monthKey;
+  inst.clearedAmount = rem.principalLeft;
+  inst.clearedAt = todayStr();
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  emitSaved();
+  toast(`已结清，${monthKey} 扣 ¥${fmtMoney(rem.principalLeft)}`);
 }
 
 // 设置预算总额
