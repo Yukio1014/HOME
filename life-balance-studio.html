@@ -1045,7 +1045,7 @@ const DB = {
 // ===== 数据持久化(localStorage) =====
 const STORAGE_KEY = 'life_balance_studio_v1';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.2.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.2.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -4824,8 +4824,77 @@ function openInstallmentDetail(id){
 
     <div class="sheet-actions">
       <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">关闭</button>
+      ${cleared ? '' : `<button class="sheet-btn sheet-btn-secondary" style="color:var(--blue);" onclick="openInstallmentEdit('${inst.id}')">✏️ 修改计划</button>`}
     </div>
   `);
+}
+
+function openInstallmentEdit(id){
+  haptic();
+  const inst = (DB.installments||[]).find(x=>x.id===id);
+  if(!inst){ toast('这笔分期不存在'); return; }
+  if(inst.status === 'cleared'){ toast('已结清的分期不能再修改'); return; }
+  const periods = Math.max(1, inst.periods||1);
+  openSheet(`
+    <div class="sheet-title">✏️ 修改分期计划</div>
+    <div class="sheet-field">
+      <div class="sheet-label">名称</div>
+      <input class="sheet-input" id="ieName" value="${escTask(inst.name||'')}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">本金（总金额）</div>
+      <input class="sheet-input" id="iePrincipal" type="number" inputmode="decimal" value="${inst.principal||0}">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <div class="sheet-field" style="flex:1;min-width:0;">
+        <div class="sheet-label">分期期数</div>
+        <input class="sheet-input" id="iePeriods" type="number" inputmode="numeric" min="1" value="${periods}">
+      </div>
+      <div class="sheet-field" style="flex:1;min-width:0;">
+        <div class="sheet-label">首期月份</div>
+        <select class="sheet-input" id="ieStart" style="padding:11px 10px;font-size:14px;">
+          ${instMonthOptionsHTML(inst.startMonth || state.currentMonth)}
+        </select>
+      </div>
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">每期利息（免息填 0）</div>
+      <input class="sheet-input" id="ieInterest" type="number" inputmode="decimal" min="0" value="${inst.interest||0}">
+    </div>
+    <div class="sheet-field">
+      <div class="sheet-label">已还完前几期</div>
+      <input class="sheet-input" id="iePaid" type="number" inputmode="numeric" min="0" value="${inst.paidPeriods||0}">
+    </div>
+    <div class="sheet-actions">
+      <button class="sheet-btn sheet-btn-secondary" onclick="closeSheet()">取消</button>
+      <button class="sheet-btn sheet-btn-primary" onclick="saveInstallmentEdit('${inst.id}')">保存</button>
+    </div>
+    <div style="font-size:11px;color:var(--label-3);text-align:center;margin-top:8px;">保存后所有月份的应还金额会自动重算</div>
+  `);
+}
+
+function saveInstallmentEdit(id){
+  const inst = (DB.installments||[]).find(x=>x.id===id);
+  if(!inst) return;
+  if(inst.status === 'cleared'){ toast('已结清不能修改'); return; }
+  const principal = Math.round((parseFloat(document.getElementById('iePrincipal').value)||0)*100)/100;
+  const periods = Math.max(1, parseInt(document.getElementById('iePeriods').value)||1);
+  const interest = Math.max(0, parseFloat(document.getElementById('ieInterest').value)||0);
+  const paid = Math.max(0, Math.min(periods, parseInt(document.getElementById('iePaid').value)||0));
+  const startRaw = document.getElementById('ieStart').value;
+  if(!(principal>0)){ toast('本金需大于 0'); return; }
+  haptic();
+  inst.name = (document.getElementById('ieName').value||'').trim() || inst.name;
+  inst.principal = principal;
+  inst.periods = periods;
+  inst.interest = interest;
+  if(/^\d{4}-\d{2}$/.test(startRaw)) inst.startMonth = startRaw;
+  inst.paidPeriods = paid;
+  saveDB();
+  closeSheet();
+  renderMoney(document.getElementById('content'));
+  emitSaved();
+  toast('已更新，所有月份已重算');
 }
 
 function settleInstallment(id){
