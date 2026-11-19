@@ -1057,7 +1057,7 @@ const DB = {
 // ===== 数据持久化(localStorage) =====
 const STORAGE_KEY = 'life_balance_studio_v1';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.4.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.4.2'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -1579,7 +1579,9 @@ function calcMonthFinance(monthKey){
   const bonusTotal = getBonusTotal(m);
   // v3.4.1 预计月结金币 = 预计工资 + 额外收入 − 预算范围
   // 预算范围本身就涵盖【月花销 + 超前消费】，所以不再单独扣 advanceTotal（否则超前被扣两次）
-  const goldPlanned = Math.round(((m.incomePlanned||0) + bonusTotal - (m.budget||0))*100)/100;
+  // v3.4.2 预计月结金币 = 预计工资 − 预算。这是一个「不动」的基准：
+  // 额外收入是已经发生的事实，只进实际值，不进预计值；否则预计会随实际波动，失去可比性。
+  const goldPlanned = Math.round(((m.incomePlanned||0) - (m.budget||0))*100)/100;
   // 实际月结金币 = 实际工资 + 额外收入 − 超前消费 − 普通消费 − 公司垫付
   const goldActual = (m.incomeActual||0) + bonusTotal - advanceTotal - normalExpense - companyAdvanceTotal;
   const goldOverride = m.goldOverride;
@@ -2015,8 +2017,8 @@ function analyzeYearFinance(year){
     const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0);
     const monthBonus = getBonusTotal(fin);
     const monthIncome = (fin.incomeActual||0) + monthBonus;
-    // 预计金币 = 预计工资 + 额外收入 − 预算范围（预算已涵盖月花销+超前消费，不再重复扣）
-    const goldPlanned = (fin.incomePlanned||0) + monthBonus - (fin.budget||0);
+    // 预计金币 = 预计工资 − 预算（固定基准；额外收入只进实际值）
+    const goldPlanned = (fin.incomePlanned||0) - (fin.budget||0);
     // 实际金币 = 实际工资+额外收入 - 超前消费 - 普通消费 - 公司垫付
     const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthAdvance - monthExpense - monthCompanyAdvance);
 
@@ -3137,14 +3139,14 @@ function renderMoney(c){
             <div style="font-size:34px;font-weight:700;line-height:1.1;">¥${fmtMoney(fin.goldFinal)}</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px;color:rgba(255,255,255,.6);">预计</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.6);">预计 · 固定基准</div>
             <div style="font-size:18px;font-weight:600;color:${fin.goldPlanned<0?'rgba(255,183,183,.95)':'rgba(255,255,255,.9)'};">¥${fmtMoney(fin.goldPlanned)}</div>
           </div>
         </div>
         ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;margin-top:6px;">⚠️ 已手动覆盖</div>' : ''}
         <div class="gold-formula">
           <div class="gold-formula-row">实际 ＝ 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外 ¥${fmtMoney(fin.bonusTotal||0)} − 超前 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(normalTotal)} − 垫付 ¥${fmtMoney(companyAdvanceTotal)}</div>
-          <div class="gold-formula-row gold-formula-plan">预计 ＝ 预计工资 ¥${fmtMoney(fin.incomePlanned)}${(fin.bonusTotal||0)>0?' ＋ 额外 ¥'+fmtMoney(fin.bonusTotal):''} − 预算 ¥${fmtMoney(fin.budget)} ＝ ¥${fmtMoney(fin.goldPlanned)}</div>
+          <div class="gold-formula-row gold-formula-plan">预计 ＝ 预计工资 ¥${fmtMoney(fin.incomePlanned)} − 预算 ¥${fmtMoney(fin.budget)} ＝ ¥${fmtMoney(fin.goldPlanned)}</div>
         </div>
       </div>
 
@@ -5110,10 +5112,11 @@ function editBudget(){
   openSheet(`
     <div class="sheet-title">补给预算计划 · ${state.currentMonth.slice(0,4)}年${parseInt(state.currentMonth.slice(5,7),10)}月</div>
     <div style="background:#F0F8FF;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--label-2);line-height:1.7;">
-      <div>预计收入 ¥${fmtMoney(fin.incomePlanned)}　·　实际收入 ¥${fmtMoney(fin.incomeActual)}</div>
+      <div>预计工资 ¥${fmtMoney(fin.incomePlanned)}　·　实际工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外 ¥${fmtMoney(fin.bonusTotal||0)}</div>
       <div>预算范围 ＝ 月花销 ＋ 超前消费</div>
       <div style="color:var(--label-3);">本月超前消费 ¥${fmtMoney(fin.advanceTotal)}（手录＋分期应还），请一并算进预算</div>
-      <div style="color:var(--blue);font-weight:600;margin-top:4px;">预计月结金币 ＝ 预计收入 − 预算 ＝ ¥${fmtMoney(fin.goldPlanned)}</div>
+      <div style="color:var(--blue);font-weight:600;margin-top:4px;">预计月结金币 ＝ 预计工资 − 预算 ＝ ¥${fmtMoney(fin.goldPlanned)}</div>
+      <div style="color:var(--label-3);font-size:11px;margin-top:2px;">预计是固定基准：额外收入已经发生，只计入实际，不进预计</div>
     </div>
     <div class="sheet-field">
       <div class="sheet-label">本月消费预算 (¥)</div>
