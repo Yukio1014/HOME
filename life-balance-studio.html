@@ -768,6 +768,17 @@ input,textarea{font-family:inherit;}
 }
 .gold-coin-card .cmp-pair-row{border-bottom-color:rgba(255,255,255,.15);}
 
+/* 月结金币下方双行算式（实际 / 预计），v3.4.1 */
+.gold-formula{
+  margin-top:8px;padding-top:8px;
+  border-top:1px solid rgba(255,255,255,.15);
+  font-size:10.5px;line-height:1.6;
+  color:rgba(255,255,255,.6);
+  font-variant-numeric:tabular-nums;
+}
+.gold-formula-row{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gold-formula-plan{color:rgba(255,255,255,.45);margin-top:1px;}
+
 /* ===== 封印宝箱卡片（渐变紫金） ===== */
 .treasure-chest-card{
   background:linear-gradient(135deg,#5E5CE6,#AF52DE);
@@ -1046,7 +1057,7 @@ const DB = {
 // ===== 数据持久化(localStorage) =====
 const STORAGE_KEY = 'life_balance_studio_v1';
 const DB_VERSION = 'v3_rebuild';
-const APP_VERSION = '3.4.0'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
+const APP_VERSION = '3.4.1'; // App 版本号（用于自检测自刷新，与仓库根目录 version.json 保持一致）
 
 function saveDB(){
   try {
@@ -1566,8 +1577,10 @@ function calcMonthFinance(monthKey){
   advanceCount += installmentCount;
   // 额外收入（奖金/外快）：计入实际收入
   const bonusTotal = getBonusTotal(m);
-  // 月结金币 = (工资 + 额外收入) - 超前消费 - 普通消费 - 公司垫付
-  const goldPlanned = (m.incomePlanned||0) - advanceTotal - (m.budget||0);
+  // v3.4.1 预计月结金币 = 预计工资 + 额外收入 − 预算范围
+  // 预算范围本身就涵盖【月花销 + 超前消费】，所以不再单独扣 advanceTotal（否则超前被扣两次）
+  const goldPlanned = Math.round(((m.incomePlanned||0) + bonusTotal - (m.budget||0))*100)/100;
+  // 实际月结金币 = 实际工资 + 额外收入 − 超前消费 − 普通消费 − 公司垫付
   const goldActual = (m.incomeActual||0) + bonusTotal - advanceTotal - normalExpense - companyAdvanceTotal;
   const goldOverride = m.goldOverride;
   const goldFinal = goldOverride !== null ? goldOverride : goldActual;
@@ -2002,8 +2015,8 @@ function analyzeYearFinance(year){
     const monthExpense = Object.values(monthCats).reduce((a,b)=>a+b,0);
     const monthBonus = getBonusTotal(fin);
     const monthIncome = (fin.incomeActual||0) + monthBonus;
-    // 预计金币 = 预计工资 - 超前消费 - 预算
-    const goldPlanned = (fin.incomePlanned||0) - monthAdvance - (fin.budget||0);
+    // 预计金币 = 预计工资 + 额外收入 − 预算范围（预算已涵盖月花销+超前消费，不再重复扣）
+    const goldPlanned = (fin.incomePlanned||0) + monthBonus - (fin.budget||0);
     // 实际金币 = 实际工资+额外收入 - 超前消费 - 普通消费 - 公司垫付
     const goldActual = (fin.goldOverride !== null && fin.goldOverride !== undefined) ? fin.goldOverride : (monthIncome - monthAdvance - monthExpense - monthCompanyAdvance);
 
@@ -3125,12 +3138,13 @@ function renderMoney(c){
           </div>
           <div style="text-align:right;">
             <div style="font-size:11px;color:rgba(255,255,255,.6);">预计</div>
-            <div style="font-size:18px;font-weight:600;color:rgba(255,255,255,.9);">¥${fmtMoney(fin.goldPlanned)}</div>
+            <div style="font-size:18px;font-weight:600;color:${fin.goldPlanned<0?'rgba(255,183,183,.95)':'rgba(255,255,255,.9)'};">¥${fmtMoney(fin.goldPlanned)}</div>
           </div>
         </div>
         ${fin.goldOverride !== null ? '<div style="font-size:11px;color:#FFD700;margin-top:6px;">⚠️ 已手动覆盖</div>' : ''}
-        <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);">
-          = 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外收入 ¥${fmtMoney(fin.bonusTotal||0)} − 超前消费 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(normalTotal)} − 公司垫付 ¥${fmtMoney(companyAdvanceTotal)}
+        <div class="gold-formula">
+          <div class="gold-formula-row">实际 ＝ 工资 ¥${fmtMoney(fin.incomeActual)} ＋ 额外 ¥${fmtMoney(fin.bonusTotal||0)} − 超前 ¥${fmtMoney(advanceTotal)} − 消费 ¥${fmtMoney(normalTotal)} − 垫付 ¥${fmtMoney(companyAdvanceTotal)}</div>
+          <div class="gold-formula-row gold-formula-plan">预计 ＝ 预计工资 ¥${fmtMoney(fin.incomePlanned)}${(fin.bonusTotal||0)>0?' ＋ 额外 ¥'+fmtMoney(fin.bonusTotal):''} − 预算 ¥${fmtMoney(fin.budget)} ＝ ¥${fmtMoney(fin.goldPlanned)}</div>
         </div>
       </div>
 
@@ -5094,11 +5108,12 @@ function editBudget(){
   if(!m) return;
   const fin = calcMonthFinance(state.currentMonth);
   openSheet(`
-    <div class="sheet-title">补给预算计划 · ${state.currentMonth}</div>
-    <div style="background:#F0F8FF;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--label-2);line-height:1.6;">
-      本月收入: ¥${fmtMoney(fin.incomeActual||fin.incomePlanned)}<br>
-      已含超前消费: ¥${fmtMoney(fin.advanceTotal)}（自动从收入扣除）<br>
-      <span style="color:var(--label-3);">预算 = 可支配收入 - 计划存款，填一个总额即可</span>
+    <div class="sheet-title">补给预算计划 · ${state.currentMonth.slice(0,4)}年${parseInt(state.currentMonth.slice(5,7),10)}月</div>
+    <div style="background:#F0F8FF;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--label-2);line-height:1.7;">
+      <div>预计收入 ¥${fmtMoney(fin.incomePlanned)}　·　实际收入 ¥${fmtMoney(fin.incomeActual)}</div>
+      <div>预算范围 ＝ 月花销 ＋ 超前消费</div>
+      <div style="color:var(--label-3);">本月超前消费 ¥${fmtMoney(fin.advanceTotal)}（手录＋分期应还），请一并算进预算</div>
+      <div style="color:var(--blue);font-weight:600;margin-top:4px;">预计月结金币 ＝ 预计收入 − 预算 ＝ ¥${fmtMoney(fin.goldPlanned)}</div>
     </div>
     <div class="sheet-field">
       <div class="sheet-label">本月消费预算 (¥)</div>
